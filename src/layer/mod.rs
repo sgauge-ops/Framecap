@@ -1,0 +1,12 @@
+pub mod auto;
+pub mod config;
+pub mod diagnostics;
+pub mod input_x11;
+pub mod lib;
+pub mod limiter;
+pub mod metrics;
+pub mod overlay;
+pub mod renderer;
+pub mod settings;
+pub mod telemetry;
+pub mod vulkan_interface;

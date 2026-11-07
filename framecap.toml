@@ -1,0 +1,83 @@
+# This file must be copied to the "~/.config/" folder
+# Invalid TOML or unknown keys cause the full file to fall back to built-in defaults.
+
+[framecap]
+target_fps = 90         # Initial FPS target; 0 starts with the limiter disabled. Built-in default: 60 FPS; valid range: 0 or 1-240; invalid values disable the cap.
+window_size = 60        # Metrics aggregator window size. Built-in default: 60 samples; valid range: 1-4096; invalid values use the default.
+gpu_poll_rate_ms = 200  # GPU telemetry polling and AUTO evaluation interval; also the minimum collection time at startup or after a CAP change before FPS, 10% low, and jitter become available. Built-in default: 100 ms; valid range: 10-1000 ms; invalid values use the default.
+
+[key-bindings]
+input_enabled = true    # Enable global function-key shortcuts. Built-in default: true; shortcuts require X11/XWayland; invalid TOML types reject the file.
+hotkey_auto = "F9"      # Cycle manual -> automatic -> off. Built-in default: F9; valid keys: F9-F12; invalid or duplicate keys disable all shortcuts.
+hotkey_down = "F10"     # Decrease the manual cap or AUTO hysteresis. Built-in default: F10; valid keys: F9-F12; invalid or duplicate keys disable all shortcuts.
+hotkey_up = "F11"       # Increase the manual cap or AUTO hysteresis. Built-in default: F11; valid keys: F9-F12; invalid or duplicate keys disable all shortcuts.
+hotkey_toggle = "F12"   # Show or hide the overlay. Built-in default: F12; valid keys: F9-F12; invalid or duplicate keys disable all shortcuts.
+
+[sensors]
+# Optional sysfs overrides; unset paths are discovered by hwmon label.
+# hwmon indices may change after reboot or hardware changes.
+# Power channel paths may omit the sysfs "_input" suffix.
+gpu_vrm_temp_path = "/sys/class/hwmon/hwmon4/temp2_input"
+cpu_vrm_temp_path = "/sys/class/hwmon/hwmon4/temp1_input"
+gpu_edge_temp_path = "/sys/class/hwmon/hwmon1/temp1_input"
+gpu_power_path = "/sys/class/hwmon/hwmon4/power2"
+cpu_power_path = "/sys/class/hwmon/hwmon4/power1"
+ppt_power_path = "/sys/class/hwmon/hwmon1/power1"
+fan_rpm_path = "/sys/class/hwmon/hwmon3/fan2"
+
+[overlay]
+startup = 1                         # Affiche l'overlay au démarrage. 1 pour oui, 0 pour non. Défaut : 1.
+background_opacity = 0.25           # Overlay background opacity. Built-in default: 0.25; 0.0 is fully transparent and 1.0 fully opaque; valid range: 0.0-1.0; invalid values use the default.
+refresh_rate = 25                   # Redraw the overlay every frame; refresh its displayed metrics and jitter graph every N presents.
+gpu_smoothing_window_ms = 1000      # Rolling time window for FPS, 10% low, jitter, GPU load, and hardware sensor readings. Built-in default: 1000 ms; must be positive; invalid values use the default.
+scale_2x_min_width_px = 3840        # Minimum swapchain width for doubling overlay text. Built-in default: 3840 px; must be positive; invalid values use the default.
+# FPS, 10% low, and jitter use the same presentation samples and reset together on CAP changes.
+# They all show COLLECT until at least one valid interval is available and gpu_poll_rate_ms has elapsed from startup or the CAP change.
+
+jitter_graph_startup = 0        # Show the jitter graph at startup. Built-in default: 0 (disabled); set to 1 to enable.
+jitter_graph_width_px = 400     # Jitter graph width. Built-in default: 100 px; valid range: 1-4096; invalid values use the default.
+jitter_graph_height_px = 10     # Jitter graph height. Built-in default: 10 px; valid range: 1-4096; invalid values use the default.
+jitter_graph_window_ms = 3000   # Time span shown by the jitter graph. Built-in default: 3000 ms; must be positive; invalid values use the default.
+
+[auto-mode]
+# GPU load below which gpu_threshold may increase the CAP. Built-in default: 98%; valid range: 0-100%.
+gpu_increase_limit = 98.0
+# GPU load at or above which gpu_threshold may decrease the CAP. Built-in default: 90%; valid range: 0-100%.
+gpu_decrease_limit = 90.0
+# Jitter (ms) that also permits gpu_threshold to decrease below gpu_decrease_limit. Built-in default: 2 ms; valid range: 0-500.
+frame_jitter_limit = 2.0
+# F9 cycles through the algorithms in this order.
+algorithm_order = ["gpu_threshold", "vrm_temp"]
+
+[auto-mode.algorithms.gpu_threshold]
+metric = "fps"                    # Supervised metric; built-in default: "fps".
+target = "low_10_fps"             # Reference metric; built-in default: "low_10_fps".
+hysteresis_percent = 3.0          # Dead band relative to the FPS cap; built-in default: 3%; valid range: 0-100%.
+auto_increase_interval_ms = 4000  # Minimum interval between effective increases; built-in default: 5000 ms; must be positive.
+auto_decrease_interval_ms = 2000  # Minimum interval between effective decreases; built-in default: 5000 ms; must be positive.
+auto_increase_step_fps = 5.0      # Cap increase per decision; built-in default: 5 FPS; must be finite and positive.
+auto_decrease_step_fps = 5.0      # Cap decrease per decision; built-in default: 5 FPS; must be finite and positive.
+min_fps = 50.0                    # Algorithm cap bounds; built-in default: 1-240 FPS; valid range: 1-240 FPS.
+max_fps = 90.0
+measurement_expiry_ms = 1000      # Maximum age of the GPU load sample; built-in default: 1000 ms; must be positive.
+
+[auto-mode.algorithms.vrm_temp]
+metric = "gpu_vrm_temp_c"         # Supervised metric; built-in default: "gpu_vrm_temp_c".
+target = 100.0                    # Temperature target in degrees C; built-in default: 100 degrees C; must be positive.
+hysteresis_percent = 5.0          # Temperature dead band; built-in default: 5%; valid range: 0-100%.
+auto_increase_interval_ms = 10000 # Minimum interval between effective increases; built-in default: 10000 ms; must be positive.
+auto_decrease_interval_ms = 20000 # Minimum interval between effective decreases; built-in default: 5000 ms; must be positive.
+auto_increase_step_fps = 5.0      # Cap increase per decision; built-in default: 5 FPS; must be finite and positive.
+auto_decrease_step_fps = 5.0      # Cap decrease per decision; built-in default: 5 FPS; must be finite and positive.
+min_fps = 50.0                    # Algorithm cap bounds; built-in default: 1-240 FPS; valid range: 1-240 FPS.
+max_fps = 90.0
+measurement_expiry_ms = 1000      # Maximum age of the VRM temperature sample; built-in default: 1000 ms; must be positive.
+
+[manual-mode]
+step_fps = 5.0      # Manual F10/F11 cap adjustment step. Built-in default: 5 FPS; must be finite and positive; invalid values use the default.
+min_fps = 5.0       # Manual target lower bound. Built-in default: 1 FPS; valid range: 1-240 and no greater than max_fps; invalid bounds use 1-240.
+max_fps = 240.0     # Manual target upper bound. Built-in default: 240 FPS; valid range: 1-240 and no less than min_fps; invalid bounds use 1-240.
+
+[diagnostics]
+log_path = "/tmp/framecap.log"      # Optional diagnostic log path. Built-in default: XDG_STATE_HOME or ~/.local/state/framecap/framecap.log; if the path cannot be opened, use stderr.
+append_log = 0                      # Keep previous log contents when Framecap starts. Built-in default: 0 (clear log); set to 1 to keep.

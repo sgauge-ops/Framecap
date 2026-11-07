@@ -1,0 +1,25 @@
+[package]
+name = "framecap"
+version = "0.1.0"
+edition = "2021"
+authors = ["Sebastien"]
+description = "Adaptive Vulkan frame capping based on frametime jitter"
+
+[lib]
+path = "src/lib.rs"
+crate-type = ["rlib", "cdylib"]
+
+[dependencies]
+ash = "0.38"
+log = "0.4"
+env_logger = "0.10"
+anyhow = "1.0"
+libc = "0.2"
+tokio = { version = "1", features = ["full"] }
+parking_lot = "0.8"
+libloading = "0.8"
+serde = { version = "1.0", features = ["derive"] }
+toml = "0.8"
+
+[build-dependencies]
+# We'll need to handle the Vulkan Layer entry points specifically.
