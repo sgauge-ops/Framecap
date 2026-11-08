@@ -2,10 +2,10 @@
 
 Framecap is an experimental Linux Vulkan layer that provides an overlay and automatic FPS regulation.
 
-Framecap has been developped and validated with a bc250 mining board running CachyOS with bc250 kernel and cyan-skillfish governor.
+Framecap has been developped and validated with a bc250 mining board running CachyOS with [bc250 kernel](https://github.com/MastaG/linux-cachyos-bc250) and [cyan-skillfish governor](https://github.com/filippor/cyan-skillfish-governor).
 Any other configuration is unknown at the moment.
 
-Framecap offers the following modes (cycled-through via [F9] by default):
+Framecap offers the following modes, that can be cycled-through via [F9] (by default):
 | mode | description |
 | --- | --- |
 | OFF | Overlay only, no frame capping |
