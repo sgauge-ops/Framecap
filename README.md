@@ -69,7 +69,7 @@ that game, not globally. Remove the launch options to disable it.
 
 ```sh
 cd "$HOME/bc250-framecap" ;
-mv framecap.toml framecap.bak.toml
+cp framecap.toml framecap.bak.toml
 git pull ;
 cargo build --locked --release
 ```
