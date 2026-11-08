@@ -6,7 +6,7 @@ Permettre à l'utilisateur d'activer ou de désactiver l'ajustement automatique
 du plafond FPS avec les raccourcis globaux, en conservant le limiteur existant
 et sa cible initiale. La régulation est expérimentale; l'algorithme
 `gpu_threshold` s'appuie sur le FPS, le « 10% low » et la charge GPU, tandis
-que `vrm_temp` surveille la température GPU VRM. Elle ne prétend pas
+que `vrm_temp` surveille la température GPU VRM et `fan_rpm` la vitesse du ventilateur. Elle ne prétend pas
 identifier la cause de toutes les baisses de framerate.
 
 ## Spécification de référence

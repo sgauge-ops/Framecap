@@ -19,6 +19,7 @@ pub const DEFAULT_FRAME_JITTER_LIMIT_MS: f32 = 2.0;
 pub enum AutoMetric {
     Fps,
     GpuVrmTempC,
+    FanRpm,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -47,6 +48,7 @@ impl AutoMetric {
         match value {
             "fps" => Some(Self::Fps),
             "gpu_vrm_temp_c" => Some(Self::GpuVrmTempC),
+            "fan_rpm" => Some(Self::FanRpm),
             _ => None,
         }
     }
@@ -66,6 +68,7 @@ impl AutoTarget {
 pub enum AutoAlgorithmKind {
     GpuThreshold,
     VrmTemp,
+    FanRpm,
 }
 
 impl AutoAlgorithmKind {
@@ -73,6 +76,7 @@ impl AutoAlgorithmKind {
         match value {
             "gpu_threshold" => Some(Self::GpuThreshold),
             "vrm_temp" => Some(Self::VrmTemp),
+            "fan_rpm" => Some(Self::FanRpm),
             _ => None,
         }
     }
@@ -443,6 +447,11 @@ fn validated_auto_algorithms(algorithms: Vec<AutoAlgorithmSettings>) -> Vec<Auto
             {
                 (value > 0.0).then_some((AutoMetric::GpuVrmTempC, AutoTarget::Value(value)))
             }
+            (Some(AutoMetric::FanRpm), Some(AutoTarget::Value(value)))
+                if kind == AutoAlgorithmKind::FanRpm =>
+            {
+                (value > 0.0).then_some((AutoMetric::FanRpm, AutoTarget::Value(value)))
+            }
             _ => None,
         };
         let (metric, target) = if let Some(pair) = valid_pair {
@@ -637,13 +646,17 @@ mod tests {
             AutoAlgorithmKind::parse("vrm_temp"),
             Some(AutoAlgorithmKind::VrmTemp)
         );
+        assert_eq!(
+            AutoAlgorithmKind::parse("fan_rpm"),
+            Some(AutoAlgorithmKind::FanRpm)
+        );
         assert_eq!(AutoAlgorithmKind::parse("unknown"), None);
     }
 
     #[test]
     fn shipped_algorithms_keep_order_and_independent_settings() {
         let config = Config::load();
-        assert_eq!(config.auto_algorithms.len(), 2);
+        assert_eq!(config.auto_algorithms.len(), 3);
         assert_eq!(config.auto_algorithms[0].name, "gpu_threshold");
         assert_eq!(config.auto_algorithms[0].metric, AutoMetric::Fps);
         assert_eq!(config.auto_algorithms[0].target, AutoTarget::Low10Fps);
@@ -656,6 +669,13 @@ mod tests {
         assert_eq!(config.auto_algorithms[1].target, AutoTarget::Value(100.0));
         assert_eq!(
             config.auto_algorithms[1].increase_interval,
+            Duration::from_millis(10000)
+        );
+        assert_eq!(config.auto_algorithms[2].name, "fan_rpm");
+        assert_eq!(config.auto_algorithms[2].metric, AutoMetric::FanRpm);
+        assert_eq!(config.auto_algorithms[2].target, AutoTarget::Value(2000.0));
+        assert_eq!(
+            config.auto_algorithms[2].increase_interval,
             Duration::from_millis(10000)
         );
     }

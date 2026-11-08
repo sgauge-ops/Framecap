@@ -1,7 +1,7 @@
 1. Overlay presentation requirement :
 Line 1 (MANUAL) : | [F9] CYCLE MODE | [F10] -5 FPS | | [F11] +5 FPS | [F12] OSD |
 Line 1 (AUTO) : | [F9] CYCLE MODE | [F10] -1 % | | [F11] +1 % | [F12] OSD |
-Line 2 : | MODE: MANUAL/AUTO (index)/OFF | CAP: xx FPS| HYS: xx % |
+Line 2 : | MODE: MANUAL/AUTO (JIT/VRM/FAN)/OFF | CAP: xx FPS| HYS: xx % |
 Line 3 : | xx FPS | 10% LOW: xx FPS | JIT: xx MS |
 Line 4 : | GPU: xx °C | VRM: xx °C | Load: xx % | PPT: xx W |
 Line 5 : | CPU: xx °C | VRM: xx °C | Load: xx % | RPM: xx RPM |

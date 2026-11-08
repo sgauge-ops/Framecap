@@ -205,14 +205,14 @@ impl Renderer {
     /// Formats the current mode, cap, and active algorithm hysteresis.
     pub fn status_text(
         target_fps: Option<f32>,
-        auto_algorithm_index: Option<usize>,
+        auto_algorithm_label: Option<&str>,
         hysteresis_percent: Option<f32>,
     ) -> String {
         let target = target_fps
             .filter(|fps| fps.is_finite() && *fps > 0.0)
             .map(format_fps)
             .unwrap_or_else(|| "OFF".to_owned());
-        let mode = auto_algorithm_index.map_or_else(
+        let mode = auto_algorithm_label.map_or_else(
             || {
                 if target_fps.is_some_and(|fps| fps.is_finite() && fps > 0.0) {
                     "MANUAL".to_owned()
@@ -220,7 +220,7 @@ impl Renderer {
                     "OFF".to_owned()
                 }
             },
-            |index| format!("AUTO ({})", index + 1),
+            |label| format!("AUTO ({label})"),
         );
         let mut text = format!("| MODE: {mode}");
         append_at_column(
@@ -1034,6 +1034,7 @@ impl VulkanSwapchainRenderer {
         metrics: &MetricsSnapshot,
         target_fps: Option<f32>,
         auto_algorithm_index: Option<usize>,
+        auto_algorithm_label: Option<&str>,
         hysteresis_percent: Option<f32>,
         hotkeys: [Hotkey; 4],
         manual_step_fps: f32,
@@ -1123,7 +1124,7 @@ impl VulkanSwapchainRenderer {
         let target_text =
             Renderer::target_text(target_fps, auto_algorithm_index, hotkeys, manual_step_fps);
         let status_text =
-            Renderer::status_text(target_fps, auto_algorithm_index, hysteresis_percent);
+            Renderer::status_text(target_fps, auto_algorithm_label, hysteresis_percent);
         let widest_line = [
             &text,
             &gpu_sensor_text,
@@ -1562,8 +1563,14 @@ mod tests {
         assert!(status.contains("MODE: MANUAL"));
         assert!(status.contains("| CAP:    60 FPS"));
         assert!(status.contains("| HYS:    -- %"));
-        let auto_status = Renderer::status_text(Some(75.0), Some(1), Some(5.0));
-        assert!(auto_status.contains("MODE: AUTO (2)"));
+        let auto_status = Renderer::status_text(Some(75.0), Some("VRM"), Some(5.0));
+        assert!(auto_status.contains("MODE: AUTO (VRM)"));
+        assert!(
+            Renderer::status_text(Some(75.0), Some("JIT"), Some(3.0)).contains("MODE: AUTO (JIT)")
+        );
+        assert!(
+            Renderer::status_text(Some(75.0), Some("FAN"), Some(5.0)).contains("MODE: AUTO (FAN)")
+        );
         assert!(auto_status
             .chars()
             .filter(|character| !character.is_whitespace())
@@ -1698,7 +1705,7 @@ mod tests {
         let text = Renderer::target_text(Some(77.5), None, HOTKEYS, 5.5);
         assert!(text.contains("| [F10] -5.5 FPS"));
         assert!(text.contains("| [F11] +5.5 FPS"));
-        assert!(Renderer::status_text(Some(77.5), Some(0), Some(5.5)).contains("HYS:   5.5 %"));
+        assert!(Renderer::status_text(Some(77.5), Some("JIT"), Some(5.5)).contains("HYS:   5.5 %"));
     }
 
     #[test]
@@ -1719,7 +1726,7 @@ mod tests {
     #[test]
     /// Checks that cap and hysteresis feedback highlight their status fields.
     fn cap_and_hysteresis_feedback_highlight_their_status_fields() {
-        let status = Renderer::status_text(Some(62.5), Some(0), Some(10.0));
+        let status = Renderer::status_text(Some(62.5), Some("JIT"), Some(10.0));
         for field in ["CAP:  62.5 FPS", "HYS:  10.0 %"] {
             let highlights = Renderer::feedback_rects(&status, [1200, 100], 1, 17, field);
             assert!(!highlights.is_empty());

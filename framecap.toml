@@ -30,7 +30,7 @@ startup = 1                         # Affiche l'overlay au démarrage. 1 pour ou
 background_opacity = 0.25           # Overlay background opacity. Built-in default: 0.25; 0.0 is fully transparent and 1.0 fully opaque; valid range: 0.0-1.0; invalid values use the default.
 refresh_rate = 25                   # Redraw the overlay every frame; refresh its displayed metrics and jitter graph every N presents.
 gpu_smoothing_window_ms = 1000      # Rolling time window for FPS, 10% low, jitter, GPU load, and hardware sensor readings. Built-in default: 1000 ms; must be positive; invalid values use the default.
-scale_2x_min_width_px = 3840        # Minimum swapchain width for doubling overlay text. Built-in default: 3840 px; must be positive; invalid values use the default.
+scale_2x_min_width_px = 3440        # Minimum swapchain width for doubling overlay text. Built-in default: 3840 px; must be positive; invalid values use the default.
 # FPS, 10% low, and jitter use the same presentation samples and reset together on CAP changes.
 # They all show COLLECT until at least one valid interval is available and gpu_poll_rate_ms has elapsed from startup or the CAP change.
 
@@ -40,14 +40,12 @@ jitter_graph_height_px = 10     # Jitter graph height. Built-in default: 10 px; 
 jitter_graph_window_ms = 3000   # Time span shown by the jitter graph. Built-in default: 3000 ms; must be positive; invalid values use the default.
 
 [auto-mode]
-# GPU load below which gpu_threshold may increase the CAP. Built-in default: 98%; valid range: 0-100%.
-gpu_increase_limit = 98.0
-# GPU load at or above which gpu_threshold may decrease the CAP. Built-in default: 90%; valid range: 0-100%.
-gpu_decrease_limit = 90.0
-# Jitter (ms) that also permits gpu_threshold to decrease below gpu_decrease_limit. Built-in default: 2 ms; valid range: 0-500.
-frame_jitter_limit = 2.0
+gpu_increase_limit = 98.0       # GPU load below which gpu_threshold may increase the CAP. Built-in default: 98%; valid range: 0-100%.
+gpu_decrease_limit = 90.0       # GPU load at or above which gpu_threshold may decrease the CAP. Built-in default: 90%; valid range: 0-100%.
+frame_jitter_limit = 2.0        # Jitter (ms) that also permits gpu_threshold to decrease below gpu_decrease_limit. Built-in default: 2 ms; valid range: 0-500.
+
 # F9 cycles through the algorithms in this order.
-algorithm_order = ["gpu_threshold", "vrm_temp"]
+algorithm_order = ["gpu_threshold", "vrm_temp", "fan_rpm"]
 
 [auto-mode.algorithms.gpu_threshold]
 metric = "fps"                    # Supervised metric; built-in default: "fps".
@@ -57,7 +55,7 @@ auto_increase_interval_ms = 4000  # Minimum interval between effective increases
 auto_decrease_interval_ms = 2000  # Minimum interval between effective decreases; built-in default: 5000 ms; must be positive.
 auto_increase_step_fps = 5.0      # Cap increase per decision; built-in default: 5 FPS; must be finite and positive.
 auto_decrease_step_fps = 5.0      # Cap decrease per decision; built-in default: 5 FPS; must be finite and positive.
-min_fps = 50.0                    # Algorithm cap bounds; built-in default: 1-240 FPS; valid range: 1-240 FPS.
+min_fps = 60.0                    # Algorithm cap bounds; built-in default: 1-240 FPS; valid range: 1-240 FPS.
 max_fps = 90.0
 measurement_expiry_ms = 1000      # Maximum age of the GPU load sample; built-in default: 1000 ms; must be positive.
 
@@ -70,8 +68,20 @@ auto_decrease_interval_ms = 20000 # Minimum interval between effective decreases
 auto_increase_step_fps = 5.0      # Cap increase per decision; built-in default: 5 FPS; must be finite and positive.
 auto_decrease_step_fps = 5.0      # Cap decrease per decision; built-in default: 5 FPS; must be finite and positive.
 min_fps = 50.0                    # Algorithm cap bounds; built-in default: 1-240 FPS; valid range: 1-240 FPS.
-max_fps = 90.0
+max_fps = 144.0
 measurement_expiry_ms = 1000      # Maximum age of the VRM temperature sample; built-in default: 1000 ms; must be positive.
+
+[auto-mode.algorithms.fan_rpm]
+metric = "fan_rpm"                # Supervised metric; built-in default: "fan_rpm".
+target = 2000.0                   # Fan speed target in RPM; built-in default: 2000 RPM; must be positive.
+hysteresis_percent = 5.0          # Fan speed dead band; built-in default: 5%; valid range: 0-100%.
+auto_increase_interval_ms = 5000  # Minimum interval between effective increases; built-in default: 10000 ms; must be positive.
+auto_decrease_interval_ms = 5000  # Minimum interval between effective decreases; built-in default: 5000 ms; must be positive.
+auto_increase_step_fps = 5.0      # Cap increase per decision; built-in default: 5 FPS; must be finite and positive.
+auto_decrease_step_fps = 5.0      # Cap decrease per decision; built-in default: 5 FPS; must be finite and positive.
+min_fps = 60.0                    # Algorithm cap bounds; built-in default: 1-240 FPS; valid range: 1-240 FPS.
+max_fps = 120.0
+measurement_expiry_ms = 1000      # Maximum age of the fan speed sample; built-in default: 1000 ms; must be positive.
 
 [manual-mode]
 step_fps = 5.0      # Manual F10/F11 cap adjustment step. Built-in default: 5 FPS; must be finite and positive; invalid values use the default.

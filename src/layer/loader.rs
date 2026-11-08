@@ -1200,6 +1200,8 @@ pub unsafe extern "system" fn vkQueuePresentKHR(
         let mut cap_generation = state.frame_cap.generation();
         let active_mode = state.active_auto_algorithm.load(Ordering::Relaxed);
         let auto_algorithm_index = (active_mode > 0).then_some((active_mode - 1) as usize);
+        let auto_algorithm_label =
+            auto_algorithm_index.and_then(|index| state.auto_regulator.overlay_label(index));
         let mut target_fps = state.frame_cap.target_fps();
         let hysteresis_percent = auto_algorithm_index
             .and_then(|index| state.auto_hysteresis_percent.get(index))
@@ -1257,6 +1259,7 @@ pub unsafe extern "system" fn vkQueuePresentKHR(
                     &displayed_metrics,
                     target_fps,
                     auto_algorithm_index,
+                    auto_algorithm_label,
                     hysteresis_percent,
                     hotkey_config,
                     manual_step_fps,

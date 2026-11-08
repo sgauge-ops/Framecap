@@ -533,27 +533,33 @@ mod tests {
         let controller = FrameCapController::new(Some(75.0));
 
         assert_eq!(
-            cycle_regulation_mode(&mode, &controller, 2),
+            cycle_regulation_mode(&mode, &controller, 3),
             Ok(RegulationMode::Automatic(0))
         );
         assert_eq!(mode.load(Ordering::Relaxed), 1);
         assert_eq!(controller.target_fps(), Some(75.0));
 
         assert_eq!(
-            cycle_regulation_mode(&mode, &controller, 2),
+            cycle_regulation_mode(&mode, &controller, 3),
             Ok(RegulationMode::Automatic(1))
         );
         assert_eq!(mode.load(Ordering::Relaxed), 2);
 
         assert_eq!(
-            cycle_regulation_mode(&mode, &controller, 2),
+            cycle_regulation_mode(&mode, &controller, 3),
+            Ok(RegulationMode::Automatic(2))
+        );
+        assert_eq!(mode.load(Ordering::Relaxed), 3);
+
+        assert_eq!(
+            cycle_regulation_mode(&mode, &controller, 3),
             Ok(RegulationMode::Off)
         );
         assert_eq!(mode.load(Ordering::Relaxed), -1);
         assert_eq!(controller.target_fps(), None);
 
         assert_eq!(
-            cycle_regulation_mode(&mode, &controller, 2),
+            cycle_regulation_mode(&mode, &controller, 3),
             Ok(RegulationMode::Manual)
         );
         assert_eq!(mode.load(Ordering::Relaxed), 0);
@@ -562,7 +568,7 @@ mod tests {
         let initially_off = FrameCapController::new(None);
         let initially_off_mode = AtomicI32::new(-1);
         assert_eq!(
-            cycle_regulation_mode(&initially_off_mode, &initially_off, 2),
+            cycle_regulation_mode(&initially_off_mode, &initially_off, 3),
             Ok(RegulationMode::Manual)
         );
         assert_eq!(initially_off.target_fps(), Some(60.0));

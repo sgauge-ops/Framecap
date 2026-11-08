@@ -11,7 +11,7 @@ Ce document est la référence du régulateur automatique du CAP FPS. Toute
 
 Les algorithmes prédéfinis sont définis sous
 `[auto-mode.algorithms.<nom>]`. `algorithm_order` indique l'ordre du cycle F9
-et l'indice affiché dans l'overlay. Tous les algorithmes utilisent le même
+et l'algorithme actif, affiché par son libellé dans l'overlay. Tous les algorithmes utilisent le même
 schéma et doivent fournir les paramètres suivants :
 
 | Clé | Rôle |
@@ -24,13 +24,15 @@ schéma et doivent fournir les paramètres suivants :
 | `min_fps` / `max_fps` | Bornes du CAP de cet algorithme. |
 | `measurement_expiry_ms` | Âge maximal de la mesure supervisée. |
 
-Deux couples métrique/cible sont pris en charge :
+Trois couples métrique/cible sont pris en charge :
 
 - `gpu_threshold`: `metric = "fps"` et `target = "low_10_fps"`. Le « 10% low »
   est la référence FPS à maintenir par rapport au CAP, tandis que les seuils
   GPU/jitter gardent leur rôle de critères d'autorisation de hausse/baisse.
 - `vrm_temp`: `metric = "gpu_vrm_temp_c"` et une cible numérique en °C.
   La température GPU VRM est lissée comme les autres capteurs matériels.
+- `fan_rpm`: `metric = "fan_rpm"` et une cible numérique en RPM (2000 RPM par
+  défaut). La vitesse de ventilateur est lissée comme les autres capteurs.
 
 Les autres couples sont refusés et l'algorithme concerné reprend ses valeurs
 intégrées. Les seuils communs `gpu_increase_limit`,
@@ -40,13 +42,13 @@ intégrées. Les seuils communs `gpu_increase_limit`,
 ## Modes et raccourcis
 
 Au démarrage, une valeur `[framecap].target_fps` positive active le mode
-manuel; zéro démarre en OFF. F9 fait parcourir **manuel → AUTO 1 → AUTO 2 →
-... → OFF → manuel**. Depuis un démarrage en OFF, F9 rétablit d'abord la
+manuel; zéro démarre en OFF. F9 fait parcourir **manuel → AUTO JIT → AUTO VRM →
+AUTO FAN → OFF → manuel**. Depuis un démarrage en OFF, F9 rétablit d'abord la
 dernière cible en mode manuel. OFF désactive le CAP sans oublier sa dernière
 valeur. Les règles automatiques ne changent pas le CAP en mode manuel ou OFF.
 
-En mode AUTO, l'overlay affiche `AUTO (n)`, où `n` est l'indice à partir de 1
-dans `algorithm_order`. F10 diminue et F11 augmente l'hystérésis active d'un
+En mode AUTO, l'overlay affiche `AUTO (JIT)`, `AUTO (VRM)` ou `AUTO (FAN)`,
+quel que soit l'ordre des algorithmes configuré. F10 diminue et F11 augmente l'hystérésis active d'un
 point de pourcentage par appui, dans la plage 0–100 %. Cette valeur est
 immédiatement utilisée par le régulateur et affichée comme `HYS`. En mode
 manuel, F10/F11 diminuent/augmentent le CAP selon
@@ -117,21 +119,34 @@ défaut (`T = 100 °C`, `H = 5 %`), elle s'étend de 95 à 105 °C :
 Si la lecture GPU VRM est absente ou plus ancienne que
 `measurement_expiry_ms`, aucun ajustement n'est appliqué.
 
+### `fan_rpm`
+
+Soit `R` la cible en RPM et `H` l'hystérésis en pourcentage. La zone neutre est
+`[R - R×H/100, R + R×H/100]`, bornes incluses. Pour la cible intégrée
+(`R = 2000 RPM`, `H = 5 %`), la zone neutre va de 1900 à 2100 RPM :
+
+- si la vitesse est strictement sous la borne basse, augmenter le CAP;
+- si elle est strictement au-dessus de la borne haute, diminuer le CAP;
+- dans la zone neutre, ne pas modifier le CAP.
+
+Une mesure absente ou plus ancienne que `measurement_expiry_ms` ne déclenche
+aucun ajustement.
+
 ## Configuration et valeurs intégrées
 
-Les deux algorithmes sont fournis par défaut, dans l'ordre `gpu_threshold`,
-puis `vrm_temp`. Le fichier `framecap.toml` est l'exemple de configuration
+Les trois algorithmes sont fournis par défaut, dans l'ordre `gpu_threshold`,
+puis `vrm_temp` et `fan_rpm`. Le fichier `framecap.toml` est l'exemple de configuration
 utilisateur; les valeurs indiquées peuvent différer des valeurs intégrées.
 
-| Paramètre | `gpu_threshold` intégré | `vrm_temp` intégré |
-| --- | ---: | ---: |
-| `metric` / `target` | `fps` / `low_10_fps` | `gpu_vrm_temp_c` / `100.0` |
-| `hysteresis_percent` | 3 % | 5 % |
-| `auto_increase_interval_ms` | 5000 ms | 10000 ms |
-| `auto_decrease_interval_ms` | 5000 ms | 5000 ms |
-| `auto_increase_step_fps` / `auto_decrease_step_fps` | 5 / 5 FPS | 5 / 5 FPS |
-| `min_fps` / `max_fps` | 1 / 240 FPS | 1 / 240 FPS |
-| `measurement_expiry_ms` | 1000 ms | 1000 ms |
+| Paramètre | `gpu_threshold` intégré | `vrm_temp` intégré | `fan_rpm` intégré |
+| --- | ---: | ---: | ---: |
+| `metric` / `target` | `fps` / `low_10_fps` | `gpu_vrm_temp_c` / `100.0` | `fan_rpm` / `2000.0` |
+| `hysteresis_percent` | 3 % | 5 % | 5 % |
+| `auto_increase_interval_ms` | 5000 ms | 10000 ms | 10000 ms |
+| `auto_decrease_interval_ms` | 5000 ms | 5000 ms | 5000 ms |
+| `auto_increase_step_fps` / `auto_decrease_step_fps` | 5 / 5 FPS | 5 / 5 FPS | 5 / 5 FPS |
+| `min_fps` / `max_fps` | 1 / 240 FPS | 1 / 240 FPS | 1 / 240 FPS |
+| `measurement_expiry_ms` | 1000 ms | 1000 ms | 1000 ms |
 
 Les intervalles doivent être positifs; les pas doivent être finis et positifs;
 les bornes doivent être comprises entre 1 et 240 FPS et ordonnées;
@@ -140,8 +155,8 @@ reprend le défaut du paramètre concerné.
 
 ## Vérification attendue
 
-Les tests couvrent les deux règles, la zone thermique inclusive et les
-mesures thermiques absentes/périmées, les seuils GPU et jitter, le réglage
+Les tests couvrent les trois règles, les zones neutres inclusives, les
+mesures matérielles absentes/périmées, les seuils GPU et jitter, le réglage
 F10/F11 et ses bornes, le cycle F9 avec tous les algorithmes, les temporisations
 directionnelles, les bornes FPS, la disponibilité des mesures, le schéma TOML
-commun et l'affichage de l'indice/hystérésis dans l'overlay.
+commun et l'affichage du libellé/hystérésis dans l'overlay.

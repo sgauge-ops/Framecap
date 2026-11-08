@@ -111,7 +111,11 @@ impl Default for AutoModeSettings {
             gpu_increase_limit: 98.0,
             gpu_decrease_limit: 90.0,
             frame_jitter_limit: 2.0,
-            algorithm_order: vec!["gpu_threshold".to_owned(), "vrm_temp".to_owned()],
+            algorithm_order: vec![
+                "gpu_threshold".to_owned(),
+                "vrm_temp".to_owned(),
+                "fan_rpm".to_owned(),
+            ],
             algorithms: vec![
                 AutoAlgorithmSettings {
                     name: "gpu_threshold".to_owned(),
@@ -130,6 +134,19 @@ impl Default for AutoModeSettings {
                     name: "vrm_temp".to_owned(),
                     metric: "gpu_vrm_temp_c".to_owned(),
                     target: AutoTargetSettings::Value(100.0),
+                    hysteresis_percent: 5.0,
+                    auto_increase_interval_ms: 10000,
+                    auto_decrease_interval_ms: 5000,
+                    auto_increase_step_fps: 5.0,
+                    auto_decrease_step_fps: 5.0,
+                    min_fps: 1.0,
+                    max_fps: 240.0,
+                    measurement_expiry_ms: 1000,
+                },
+                AutoAlgorithmSettings {
+                    name: "fan_rpm".to_owned(),
+                    metric: "fan_rpm".to_owned(),
+                    target: AutoTargetSettings::Value(2000.0),
                     hysteresis_percent: 5.0,
                     auto_increase_interval_ms: 10000,
                     auto_decrease_interval_ms: 5000,
@@ -670,7 +687,7 @@ mod tests {
         let settings: RawSettings = toml::from_str(
             r#"
                 [auto-mode]
-                algorithm_order = ["vrm_temp", "gpu_threshold"]
+                algorithm_order = ["vrm_temp", "gpu_threshold", "fan_rpm"]
 
                 [auto-mode.algorithms.gpu_threshold]
                 metric = "fps"
@@ -695,6 +712,18 @@ mod tests {
                 min_fps = 40.0
                 max_fps = 120.0
                 measurement_expiry_ms = 2000
+
+                [auto-mode.algorithms.fan_rpm]
+                metric = "fan_rpm"
+                target = 2000.0
+                hysteresis_percent = 5.0
+                auto_increase_interval_ms = 10000
+                auto_decrease_interval_ms = 5000
+                auto_increase_step_fps = 5.0
+                auto_decrease_step_fps = 5.0
+                min_fps = 40.0
+                max_fps = 120.0
+                measurement_expiry_ms = 2000
                 "#,
         )
         .unwrap();
@@ -703,11 +732,13 @@ mod tests {
             settings.auto_mode.algorithm_order.unwrap(),
             Settings::default().auto_mode.algorithms,
         );
-        assert_eq!(algorithms.len(), 2);
+        assert_eq!(algorithms.len(), 3);
         assert_eq!(algorithms[0].name, "vrm_temp");
         assert_eq!(algorithms[0].metric, "gpu_vrm_temp_c");
         assert_eq!(algorithms[1].name, "gpu_threshold");
         assert_eq!(algorithms[1].metric, "fps");
+        assert_eq!(algorithms[2].name, "fan_rpm");
+        assert_eq!(algorithms[2].metric, "fan_rpm");
     }
 
     #[test]

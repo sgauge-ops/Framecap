@@ -79,6 +79,16 @@ impl AutoRegulator {
         }
     }
 
+    /// Returns the overlay label for a configured algorithm.
+    pub fn overlay_label(&self, algorithm_index: usize) -> Option<&'static str> {
+        match self.algorithms.get(algorithm_index)?.config.name.as_str() {
+            "gpu_threshold" => Some("JIT"),
+            "vrm_temp" => Some("VRM"),
+            "fan_rpm" => Some("FAN"),
+            _ => None,
+        }
+    }
+
     /// Evaluates one selected algorithm and applies an eligible target change.
     pub fn evaluate(
         &mut self,
@@ -116,14 +126,20 @@ impl AutoRegulator {
                     return None;
                 }
                 let margin_fps = current_target * hysteresis;
-                if gpu.value < self.gpu_increase_limit && current_target - low_10_fps <= margin_fps
+                if (gpu.value < self.gpu_increase_limit)
+                    && ((current_target - low_10_fps) <= margin_fps)
                 {
                     (current_target + state.config.increase_step_fps).floor()
-                } else if low_10_fps < observed_fps - margin_fps
-                    && (gpu.value >= self.gpu_decrease_limit
-                        || metrics.jitter_ms() > self.frame_jitter_limit_ms)
+                } else if (low_10_fps < (observed_fps - margin_fps))
+                    && ((gpu.value >= self.gpu_decrease_limit)
+                        || (metrics.jitter_ms() > self.frame_jitter_limit_ms))
                 {
-                    (current_target - state.config.decrease_step_fps).floor()
+                    let decreased_target =
+                        (current_target - state.config.decrease_step_fps).floor();
+                    if decreased_target < low_10_fps {
+                        return None;
+                    }
+                    decreased_target
                 } else {
                     return None;
                 }
@@ -143,6 +159,30 @@ impl AutoRegulator {
                 if temperature < target_c - band {
                     (current_target + state.config.increase_step_fps).floor()
                 } else if temperature > target_c + band {
+                    (current_target - state.config.decrease_step_fps).floor()
+                } else {
+                    return None;
+                }
+            }
+            (AutoMetric::FanRpm, AutoTarget::Value(target_rpm)) => {
+                if now < metrics.hardware_timestamp()
+                    || now.saturating_duration_since(metrics.hardware_timestamp())
+                        > state.config.measurement_expiry
+                {
+                    return None;
+                }
+                let fan_rpm = metrics.hardware_metrics().fan_rpm?;
+                if !fan_rpm.is_finite()
+                    || fan_rpm < 0.0
+                    || !target_rpm.is_finite()
+                    || target_rpm <= 0.0
+                {
+                    return None;
+                }
+                let band = target_rpm * hysteresis;
+                if fan_rpm < target_rpm - band {
+                    (current_target + state.config.increase_step_fps).floor()
+                } else if fan_rpm > target_rpm + band {
                     (current_target - state.config.decrease_step_fps).floor()
                 } else {
                     return None;
@@ -258,6 +298,27 @@ mod tests {
         )
     }
 
+    fn fan_metrics(now: Instant, fan_rpm: Option<f32>) -> MetricsSnapshot {
+        MetricsSnapshot::new_with_hardware_metrics_at(
+            1000.0 / 60.0,
+            60.0,
+            0.0,
+            55.0,
+            GpuMeasurement {
+                value: 50.0,
+                timestamp: now,
+                status: TelemetryStatus::Available,
+                device_id: None,
+            },
+            HardwareMetrics {
+                fan_rpm,
+                ..HardwareMetrics::default()
+            },
+            now,
+            now,
+        )
+    }
+
     #[test]
     fn evaluation_schedule_observes_interval_and_auto_mode() {
         let now = Instant::now();
@@ -267,6 +328,33 @@ mod tests {
         assert!(schedule.should_evaluate(now + Duration::from_millis(100), Some(0)));
         assert!(!schedule.should_evaluate(now, None));
         assert!(schedule.should_evaluate(now, Some(1)));
+    }
+
+    #[test]
+    fn overlay_labels_follow_algorithm_names_not_their_order() {
+        let mut fan = algorithm(
+            AutoMetric::FanRpm,
+            AutoTarget::Value(2000.0),
+            Duration::from_secs(1),
+        );
+        fan.name = "fan_rpm".to_owned();
+        let mut jitter = algorithm(
+            AutoMetric::Fps,
+            AutoTarget::Low10Fps,
+            Duration::from_secs(1),
+        );
+        jitter.name = "gpu_threshold".to_owned();
+        let mut vrm = algorithm(
+            AutoMetric::GpuVrmTempC,
+            AutoTarget::Value(100.0),
+            Duration::from_secs(1),
+        );
+        vrm.name = "vrm_temp".to_owned();
+        let regulator = AutoRegulator::new(vec![fan, jitter, vrm], 98.0, 90.0, 2.0);
+
+        assert_eq!(regulator.overlay_label(0), Some("FAN"));
+        assert_eq!(regulator.overlay_label(1), Some("JIT"));
+        assert_eq!(regulator.overlay_label(2), Some("VRM"));
     }
 
     #[test]
@@ -292,6 +380,89 @@ mod tests {
         assert_eq!(
             regulator.evaluate(0, &metrics(now, 60.0, 50.0, 99.0, None), now, 3.0, &cap),
             Some((60.0, 55.0))
+        );
+    }
+
+    #[test]
+    fn low_ten_fps_decrease_does_not_go_below_target() {
+        let now = Instant::now();
+        let mut regulator = AutoRegulator::new(
+            vec![algorithm(
+                AutoMetric::Fps,
+                AutoTarget::Low10Fps,
+                Duration::from_secs(1),
+            )],
+            98.0,
+            90.0,
+            2.0,
+        );
+        let cap = FrameCapController::new(Some(60.0));
+
+        assert_eq!(
+            regulator.evaluate(0, &metrics(now, 60.0, 56.0, 99.0, None), now, 3.0, &cap),
+            None
+        );
+        assert_eq!(cap.target_fps(), Some(60.0));
+    }
+
+    #[test]
+    fn fan_rpm_adjusts_around_target_and_ignores_missing_or_stale_readings() {
+        let now = Instant::now();
+        for fan_rpm in [1900.0, 2000.0, 2100.0] {
+            let mut regulator = AutoRegulator::new(
+                vec![algorithm(
+                    AutoMetric::FanRpm,
+                    AutoTarget::Value(2000.0),
+                    Duration::from_secs(1),
+                )],
+                98.0,
+                90.0,
+                2.0,
+            );
+            let cap = FrameCapController::new(Some(60.0));
+            assert_eq!(
+                regulator.evaluate(0, &fan_metrics(now, Some(fan_rpm)), now, 5.0, &cap),
+                None
+            );
+        }
+
+        for (fan_rpm, expected) in [(1899.0, (60.0, 65.0)), (2101.0, (60.0, 55.0))] {
+            let mut regulator = AutoRegulator::new(
+                vec![algorithm(
+                    AutoMetric::FanRpm,
+                    AutoTarget::Value(2000.0),
+                    Duration::from_secs(1),
+                )],
+                98.0,
+                90.0,
+                2.0,
+            );
+            let cap = FrameCapController::new(Some(60.0));
+            assert_eq!(
+                regulator.evaluate(0, &fan_metrics(now, Some(fan_rpm)), now, 5.0, &cap),
+                Some(expected)
+            );
+        }
+
+        let mut regulator = AutoRegulator::new(
+            vec![algorithm(
+                AutoMetric::FanRpm,
+                AutoTarget::Value(2000.0),
+                Duration::from_millis(500),
+            )],
+            98.0,
+            90.0,
+            2.0,
+        );
+        let cap = FrameCapController::new(Some(60.0));
+        assert_eq!(
+            regulator.evaluate(0, &fan_metrics(now, None), now, 5.0, &cap),
+            None
+        );
+        let stale_time = now - Duration::from_secs(1);
+        assert_eq!(
+            regulator.evaluate(0, &fan_metrics(stale_time, Some(1000.0)), now, 5.0, &cap),
+            None
         );
     }
 
