@@ -14,9 +14,9 @@ validation behavior, documented in the
 [example file](../framecap.toml).
 
 **The tracked example is a locally tuned configuration, not the built-in
-defaults.** In particular it sets an initial target of 90 FPS, uses explicit
-hwmon paths, and writes diagnostics to `/tmp/framecap.log`. Review it before
-using it on a different machine. The [installation procedure](INSTALL.md) keeps
+defaults.** In particular it sets an initial target of 90 FPS, selects specific
+hwmon devices and labels, and writes diagnostics to `/tmp/framecap.log`. Review
+it before using it on a different machine. The [installation procedure](INSTALL.md) keeps
 this file in `$HOME/bc250-framecap` and links it from the user configuration
 directory. If running from the repository root, that file overrides the user
 configuration.
@@ -27,7 +27,7 @@ configuration.
 | --- | --- |
 | `[framecap]` | Initial cap, metrics window, and GPU polling interval. `target_fps = 0` starts in OFF. |
 | `[key-bindings]` | Enable and assign distinct F9-F12 shortcuts. |
-| `[sensors]` | Optional hwmon path overrides for temperatures, power, and fan speed. |
+| `[sensors]` | Optional hwmon device/label selectors or path overrides for temperatures, power, and fan speed. |
 | `[overlay]` | Visibility, refresh, smoothing, text scaling, FPS color, and background. |
 | `[auto-mode]` | Algorithm order and GPU/jitter thresholds. |
 | `[auto-mode.algorithms.<name>]` | Metric, target, hysteresis, intervals, steps, FPS bounds, and measurement expiry. |
@@ -38,11 +38,31 @@ The [example file](../framecap.toml) documents individual keys and built-in
 defaults. The three automatic algorithms and their complete rules are described
 in [automatic regulation](AUTO-MODE.md).
 
-Sensor paths refer to Linux sysfs hwmon files. Indices can change after a
-reboot or hardware changes. Remove an override to allow hwmon label discovery;
-power channel paths can omit `_input`. Missing or stale readings do not
-produce synthetic sensor values. The `fan_rpm` algorithm uses the fan sensor
-reading, and stops adjusting when it is unavailable or expired.
+Sensor selectors match the hwmon device's `name` and sensor label rather than
+the volatile `hwmonN` index. For example:
+
+```toml
+[sensors]
+fan_rpm = { device = "nct6686", label = "Pump Fan" }
+```
+
+Selectors are supported for `cpu_temp`, `gpu_vrm_temp`, `cpu_vrm_temp`,
+`gpu_edge_temp`, `gpu_power`, `cpu_power`, `ppt_power`, and `fan_rpm`.
+Names and labels can be inspected with `sensors` or under `/sys/class/hwmon/`.
+A selector must match exactly one usable sensor; missing or ambiguous matches
+are logged and the reading is unavailable, without falling back to another
+sensor. Selected channels use `_input` when available, otherwise `_average`.
+The selection is resolved at startup, so restart the application after hardware
+or driver changes.
+
+Existing `*_path` overrides remain supported, but hwmon indices may change
+after a reboot or hardware changes. A selector and a path for the same sensor
+conflict and disable that reading with a warning. Without either override,
+Framecap discovers sensors using built-in labels; notably, the default fan
+label is `CPU Fan`. An invalid path logs a warning before falling back to that
+discovery. Power channel paths can omit `_input`. Missing or stale readings do
+not produce synthetic sensor values. The `fan_rpm` algorithm uses the fan
+sensor reading, and stops adjusting when it is unavailable or expired.
 
 Legacy settings moved from `[framecap]` are read for migration without
 rewriting the file; conflicting old and new settings are rejected. The old

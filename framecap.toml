@@ -14,16 +14,14 @@ hotkey_up = "F11"       # Increase the manual cap or AUTO hysteresis. Built-in d
 hotkey_toggle = "F12"   # Cycle full overlay -> FPS only -> off. Built-in default: F12; valid keys: F9-F12; invalid or duplicate keys disable all shortcuts.
 
 [sensors]
-# Optional sysfs overrides; unset paths are discovered by hwmon label.
-# hwmon indices may change after reboot or hardware changes.
-# Power channel paths may omit the sysfs "_input" suffix.
-gpu_vrm_temp_path = "/sys/class/hwmon/hwmon4/temp2_input"
-cpu_vrm_temp_path = "/sys/class/hwmon/hwmon4/temp1_input"
-gpu_edge_temp_path = "/sys/class/hwmon/hwmon1/temp1_input"
-gpu_power_path = "/sys/class/hwmon/hwmon4/power2"
-cpu_power_path = "/sys/class/hwmon/hwmon4/power1"
-ppt_power_path = "/sys/class/hwmon/hwmon1/power1"
-fan_rpm_path = "/sys/class/hwmon/hwmon3/fan2"
+# Select hwmon sensors by device name and label rather than volatile hwmon indices.
+gpu_vrm_temp = { device = "bc250_vrm", label = "GPU VRM Temp" }
+cpu_vrm_temp = { device = "bc250_vrm", label = "CPU VRM Temp" }
+gpu_edge_temp = { device = "amdgpu", label = "edge" }
+gpu_power = { device = "bc250_vrm", label = "GPU Power" }
+cpu_power = { device = "bc250_vrm", label = "CPU Power" }
+ppt_power = { device = "amdgpu", label = "PPT" }
+fan_rpm = { device = "nct6686", label = "Pump Fan" }
 
 [overlay]
 startup = 2                         # Overlay at startup: 0 off, 1 FPS only, 2 full. Built-in default: 2.

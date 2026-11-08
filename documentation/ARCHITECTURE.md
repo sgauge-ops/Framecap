@@ -18,7 +18,8 @@ The optional graph has its own time window.
 GPU load and hardware sensors are sampled and smoothed separately. The
 implemented GPU load backend is AMD sysfs; telemetry has availability,
 timestamp, and device identity rather than inventing a value when unsupported.
-Hardware readings can be discovered or configured by hwmon path. The renderer
+Hardware readings can be discovered or configured by hwmon device and label
+or by path. The renderer
 draws the overlay into the application's swapchain with its own Vulkan
 resources; errors are logged and should not unnecessarily stop presentation.
 

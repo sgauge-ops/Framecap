@@ -1,5 +1,5 @@
 use crate::layer::diagnostics;
-use crate::layer::settings::{self, AutoAlgorithmSettings, AutoTargetSettings};
+use crate::layer::settings::{self, AutoAlgorithmSettings, AutoTargetSettings, MetricsSettings};
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -130,6 +130,7 @@ pub struct Config {
     pub cpu_power_path: Option<PathBuf>,
     pub ppt_power_path: Option<PathBuf>,
     pub fan_rpm_path: Option<PathBuf>,
+    pub sensor_settings: MetricsSettings,
 }
 
 impl Config {
@@ -245,14 +246,15 @@ impl Config {
             hotkey_up: hotkey_from_string(keys.hotkey_up),
             hotkey_down: hotkey_from_string(keys.hotkey_down),
             hotkey_toggle: hotkey_from_string(keys.hotkey_toggle),
-            cpu_temp_path: metrics.cpu_temp_path,
-            gpu_vrm_temp_path: metrics.gpu_vrm_temp_path,
-            cpu_vrm_temp_path: metrics.cpu_vrm_temp_path,
-            gpu_edge_temp_path: metrics.gpu_edge_temp_path,
-            gpu_power_path: metrics.gpu_power_path,
-            cpu_power_path: metrics.cpu_power_path,
-            ppt_power_path: metrics.ppt_power_path,
-            fan_rpm_path: metrics.fan_rpm_path,
+            cpu_temp_path: metrics.cpu_temp_path.clone(),
+            gpu_vrm_temp_path: metrics.gpu_vrm_temp_path.clone(),
+            cpu_vrm_temp_path: metrics.cpu_vrm_temp_path.clone(),
+            gpu_edge_temp_path: metrics.gpu_edge_temp_path.clone(),
+            gpu_power_path: metrics.gpu_power_path.clone(),
+            cpu_power_path: metrics.cpu_power_path.clone(),
+            ppt_power_path: metrics.ppt_power_path.clone(),
+            fan_rpm_path: metrics.fan_rpm_path.clone(),
+            sensor_settings: metrics,
         }
     }
 }

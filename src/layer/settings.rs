@@ -194,7 +194,15 @@ pub struct DiagnosticsSettings {
     pub append_log: bool,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct SensorSelector {
+    pub device: String,
+    pub label: String,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct MetricsSettings {
     pub cpu_temp_path: Option<PathBuf>,
     pub gpu_vrm_temp_path: Option<PathBuf>,
@@ -204,6 +212,14 @@ pub struct MetricsSettings {
     pub cpu_power_path: Option<PathBuf>,
     pub ppt_power_path: Option<PathBuf>,
     pub fan_rpm_path: Option<PathBuf>,
+    pub cpu_temp: Option<SensorSelector>,
+    pub gpu_vrm_temp: Option<SensorSelector>,
+    pub cpu_vrm_temp: Option<SensorSelector>,
+    pub gpu_edge_temp: Option<SensorSelector>,
+    pub gpu_power: Option<SensorSelector>,
+    pub cpu_power: Option<SensorSelector>,
+    pub ppt_power: Option<SensorSelector>,
+    pub fan_rpm: Option<SensorSelector>,
 }
 
 #[derive(Clone, Debug)]
@@ -356,18 +372,7 @@ struct RawDiagnosticsSettings {
     append_log: Option<u8>,
 }
 
-#[derive(Deserialize, Default)]
-#[serde(default, deny_unknown_fields)]
-struct RawMetricsSettings {
-    cpu_temp_path: Option<PathBuf>,
-    gpu_vrm_temp_path: Option<PathBuf>,
-    cpu_vrm_temp_path: Option<PathBuf>,
-    gpu_edge_temp_path: Option<PathBuf>,
-    gpu_power_path: Option<PathBuf>,
-    cpu_power_path: Option<PathBuf>,
-    ppt_power_path: Option<PathBuf>,
-    fan_rpm_path: Option<PathBuf>,
-}
+type RawMetricsSettings = MetricsSettings;
 
 impl Settings {
     /// Loads the first available TOML configuration and returns normalized settings.
@@ -501,16 +506,7 @@ impl Settings {
                 log_path: diagnostics.log_path,
                 append_log,
             },
-            metrics: MetricsSettings {
-                cpu_temp_path: metrics.cpu_temp_path,
-                gpu_vrm_temp_path: metrics.gpu_vrm_temp_path,
-                cpu_vrm_temp_path: metrics.cpu_vrm_temp_path,
-                gpu_edge_temp_path: metrics.gpu_edge_temp_path,
-                gpu_power_path: metrics.gpu_power_path,
-                cpu_power_path: metrics.cpu_power_path,
-                ppt_power_path: metrics.ppt_power_path,
-                fan_rpm_path: metrics.fan_rpm_path,
-            },
+            metrics,
         };
 
         (settings, Some(path), legacy)
@@ -832,6 +828,31 @@ mod tests {
             settings.metrics.fan_rpm_path,
             Some(PathBuf::from("/sys/class/hwmon/hwmon3/fan1"))
         );
+    }
+
+    #[test]
+    fn hwmon_sensor_selectors_are_configurable() {
+        let settings: RawSettings = toml::from_str(
+            r#"[sensors]
+            fan_rpm = { device = "nct6686", label = "Pump Fan" }
+            ppt_power = { device = "amdgpu", label = "PPT" }
+            "#,
+        )
+        .unwrap();
+        assert_eq!(
+            settings.metrics.fan_rpm,
+            Some(SensorSelector {
+                device: "nct6686".into(),
+                label: "Pump Fan".into(),
+            })
+        );
+        for invalid in [
+            r#"fan_rpm = { device = "nct6686" }"#,
+            r#"fan_rpm = { label = "Pump Fan" }"#,
+            r#"fan_rpm = { device = "nct6686", label = "Pump Fan", index = 2 }"#,
+        ] {
+            assert!(toml::from_str::<RawSettings>(&format!("[sensors]\n{invalid}")).is_err());
+        }
     }
 
     #[test]

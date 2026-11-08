@@ -57,7 +57,7 @@ is unset, Framecap searches `$HOME/.config`.
 
 The example contains machine-specific sensor overrides and values that differ
 from the built-in defaults. Review or remove the `[sensors]` overrides before
-use; hwmon indices may change. A `framecap.toml` in the game's working
+use; selectors are specific to the machine. A `framecap.toml` in the game's working
 directory takes precedence over the link. See [configuration](CONFIGURATION.md).
 
 ## Activate for a Steam game

@@ -821,16 +821,7 @@ pub unsafe extern "system" fn vkCreateDevice(
                 ash_device,
                 telemetry: TelemetryWorker::start(
                     gpu_provider,
-                    HwmonMetricsProvider::with_paths(
-                        config.cpu_temp_path.clone(),
-                        config.gpu_vrm_temp_path.clone(),
-                        config.cpu_vrm_temp_path.clone(),
-                        config.gpu_edge_temp_path.clone(),
-                        config.gpu_power_path.clone(),
-                        config.cpu_power_path.clone(),
-                        config.ppt_power_path.clone(),
-                        config.fan_rpm_path.clone(),
-                    ),
+                    HwmonMetricsProvider::with_settings(&config.sensor_settings),
                     Duration::from_millis(config.gpu_poll_rate_ms),
                     Duration::from_millis(config.gpu_smoothing_window_ms),
                 ),

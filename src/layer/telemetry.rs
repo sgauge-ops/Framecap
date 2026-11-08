@@ -1,5 +1,7 @@
+use crate::layer::diagnostics;
 pub use crate::layer::lib::TelemetryStatus;
 use crate::layer::lib::{GpuMeasurement, HardwareMetrics};
+use crate::layer::settings::{MetricsSettings, SensorSelector};
 use std::collections::VecDeque;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -303,6 +305,101 @@ impl HwmonMetricsProvider {
         )
     }
 
+    pub fn with_settings(settings: &MetricsSettings) -> Self {
+        Self::from_root_with_settings(Path::new("/sys/class/hwmon"), settings)
+    }
+
+    fn from_root_with_settings(root: &Path, settings: &MetricsSettings) -> Self {
+        let mut provider = Self::from_root_with_paths(
+            root,
+            settings.cpu_temp_path.clone(),
+            settings.gpu_vrm_temp_path.clone(),
+            settings.cpu_vrm_temp_path.clone(),
+            settings.gpu_edge_temp_path.clone(),
+            settings.gpu_power_path.clone(),
+            settings.cpu_power_path.clone(),
+            settings.ppt_power_path.clone(),
+            settings.fan_rpm_path.clone(),
+        );
+        for (name, sensor_type, selector, path, output) in [
+            (
+                "cpu_temp",
+                "temp",
+                &settings.cpu_temp,
+                &settings.cpu_temp_path,
+                &mut provider.cpu_temp,
+            ),
+            (
+                "gpu_vrm_temp",
+                "temp",
+                &settings.gpu_vrm_temp,
+                &settings.gpu_vrm_temp_path,
+                &mut provider.gpu_vrm_temp,
+            ),
+            (
+                "cpu_vrm_temp",
+                "temp",
+                &settings.cpu_vrm_temp,
+                &settings.cpu_vrm_temp_path,
+                &mut provider.cpu_vrm_temp,
+            ),
+            (
+                "gpu_edge_temp",
+                "temp",
+                &settings.gpu_edge_temp,
+                &settings.gpu_edge_temp_path,
+                &mut provider.gpu_edge_temp,
+            ),
+            (
+                "gpu_power",
+                "power",
+                &settings.gpu_power,
+                &settings.gpu_power_path,
+                &mut provider.gpu_power,
+            ),
+            (
+                "cpu_power",
+                "power",
+                &settings.cpu_power,
+                &settings.cpu_power_path,
+                &mut provider.cpu_power,
+            ),
+            (
+                "ppt_power",
+                "power",
+                &settings.ppt_power,
+                &settings.ppt_power_path,
+                &mut provider.ppt_power,
+            ),
+            (
+                "fan_rpm",
+                "fan",
+                &settings.fan_rpm,
+                &settings.fan_rpm_path,
+                &mut provider.fan_rpm,
+            ),
+        ] {
+            if let Some(selector) = selector {
+                if path.is_some() {
+                    diagnostics::warn(format!(
+                        "sensor {name}: both path and device/label configured; sensor disabled"
+                    ));
+                    *output = None;
+                } else {
+                    *output = find_selected_sensor(root, sensor_type, name, selector);
+                }
+            } else if let Some(path) = path {
+                if resolve_sensor_path(path).is_none() {
+                    diagnostics::warn(format!(
+                        "sensor {name}: configured path {} not found; using label discovery",
+                        path.display()
+                    ));
+                }
+            }
+        }
+        provider
+    }
+
     fn from_root_with_paths(
         root: &Path,
         cpu_temp: Option<PathBuf>,
@@ -370,6 +467,95 @@ impl HwmonMetricsProvider {
             ppt_w: read_hwmon_value(self.ppt_power.as_deref(), 1_000_000.0),
             fan_rpm: read_hwmon_value(self.fan_rpm.as_deref(), 1.0),
             ..HardwareMetrics::default()
+        }
+    }
+}
+
+fn find_selected_sensor(
+    root: &Path,
+    sensor_type: &str,
+    name: &str,
+    selector: &SensorSelector,
+) -> Option<PathBuf> {
+    let directories = match fs::read_dir(root) {
+        Ok(directories) => directories,
+        Err(error) => {
+            diagnostics::warn(format!(
+                "sensor {name}: cannot read {}: {error}",
+                root.display()
+            ));
+            return None;
+        }
+    };
+    let mut matches = Vec::new();
+    for entry in directories {
+        let directory = match entry {
+            Ok(entry) => entry.path(),
+            Err(error) => {
+                diagnostics::warn(format!(
+                    "sensor {name}: cannot enumerate {}: {error}",
+                    root.display()
+                ));
+                return None;
+            }
+        };
+        if fs::read_to_string(directory.join("name"))
+            .is_ok_and(|device| device.trim() == selector.device)
+        {
+            let entries = match fs::read_dir(&directory) {
+                Ok(entries) => entries,
+                Err(error) => {
+                    diagnostics::warn(format!(
+                        "sensor {name}: cannot enumerate {}: {error}",
+                        directory.display()
+                    ));
+                    return None;
+                }
+            };
+            for entry in entries {
+                let entry = match entry {
+                    Ok(entry) => entry,
+                    Err(error) => {
+                        diagnostics::warn(format!(
+                            "sensor {name}: cannot enumerate {}: {error}",
+                            directory.display()
+                        ));
+                        return None;
+                    }
+                };
+                let filename = entry.file_name();
+                let Some(index) = filename.to_str().and_then(|filename| {
+                    filename.strip_prefix(sensor_type)?.strip_suffix("_label")
+                }) else {
+                    continue;
+                };
+                match fs::read_to_string(entry.path()) {
+                    Ok(label) if label.trim() == selector.label => {
+                        let base = directory.join(format!("{sensor_type}{index}"));
+                        if let Some(path) = resolve_sensor_path(&base) {
+                            matches.push(path);
+                        }
+                    }
+                    Ok(_) => {}
+                    Err(error) => {
+                        diagnostics::warn(format!(
+                            "sensor {name}: cannot read {}: {error}",
+                            entry.path().display()
+                        ));
+                        return None;
+                    }
+                }
+            }
+        }
+    }
+    match matches.as_slice() {
+        [path] => {
+            diagnostics::info(format!("sensor {name}: selected {}", path.display()));
+            Some(path.clone())
+        }
+        _ => {
+            diagnostics::warn(format!("sensor {name}: device {:?}, label {:?} matched {} usable sensors; sensor unavailable", selector.device, selector.label, matches.len()));
+            None
         }
     }
 }
@@ -619,6 +805,98 @@ mod tests {
         assert_eq!(
             resolve_sensor_path(&root.join("hwmon4/power2")),
             Some(root.join("hwmon4/power2_input"))
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn configured_sensor_selector_survives_renumbering_and_rejects_ambiguity() {
+        let root = temporary_hwmon_root();
+        write_sensor_file(&root, "hwmon3/name", "k10temp\n");
+        write_sensor_file(&root, "hwmon2/name", "nct6686\n");
+        write_sensor_file(&root, "hwmon2/fan1_label", "CPU Fan\n");
+        write_sensor_file(&root, "hwmon2/fan1_input", "0\n");
+        write_sensor_file(&root, "hwmon2/fan2_label", "Pump Fan\n");
+        write_sensor_file(&root, "hwmon2/fan2_input", "780\n");
+        let mut settings = MetricsSettings {
+            fan_rpm: Some(SensorSelector {
+                device: "nct6686".into(),
+                label: "Pump Fan".into(),
+            }),
+            ..MetricsSettings::default()
+        };
+        assert_eq!(
+            HwmonMetricsProvider::from_root_with_settings(&root, &settings)
+                .get_metrics()
+                .fan_rpm,
+            Some(780.0)
+        );
+        fs::rename(root.join("hwmon2"), root.join("hwmon7")).unwrap();
+        assert_eq!(
+            HwmonMetricsProvider::from_root_with_settings(&root, &settings)
+                .get_metrics()
+                .fan_rpm,
+            Some(780.0)
+        );
+        write_sensor_file(&root, "hwmon8/name", "nct6686\n");
+        write_sensor_file(&root, "hwmon8/fan1_label", "Pump Fan\n");
+        write_sensor_file(&root, "hwmon8/fan1_input", "900\n");
+        assert_eq!(
+            HwmonMetricsProvider::from_root_with_settings(&root, &settings)
+                .get_metrics()
+                .fan_rpm,
+            None
+        );
+        settings.fan_rpm.as_mut().unwrap().label = "Missing Fan".into();
+        assert_eq!(
+            HwmonMetricsProvider::from_root_with_settings(&root, &settings)
+                .get_metrics()
+                .fan_rpm,
+            None
+        );
+        settings.fan_rpm_path = Some(root.join("hwmon7/fan2_input"));
+        assert_eq!(
+            HwmonMetricsProvider::from_root_with_settings(&root, &settings)
+                .get_metrics()
+                .fan_rpm,
+            None
+        );
+        settings.fan_rpm = None;
+        assert_eq!(
+            HwmonMetricsProvider::from_root_with_settings(&root, &settings)
+                .get_metrics()
+                .fan_rpm,
+            Some(780.0)
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn selected_power_prefers_input_and_falls_back_to_average() {
+        let root = temporary_hwmon_root();
+        write_sensor_file(&root, "hwmon1/name", "amdgpu\n");
+        write_sensor_file(&root, "hwmon1/power1_label", "PPT\n");
+        write_sensor_file(&root, "hwmon1/power1_input", "40000000\n");
+        write_sensor_file(&root, "hwmon1/power1_average", "30000000\n");
+        let settings = MetricsSettings {
+            ppt_power: Some(SensorSelector {
+                device: "amdgpu".into(),
+                label: "PPT".into(),
+            }),
+            ..MetricsSettings::default()
+        };
+        assert_eq!(
+            HwmonMetricsProvider::from_root_with_settings(&root, &settings)
+                .get_metrics()
+                .ppt_w,
+            Some(40.0)
+        );
+        fs::remove_file(root.join("hwmon1/power1_input")).unwrap();
+        assert_eq!(
+            HwmonMetricsProvider::from_root_with_settings(&root, &settings)
+                .get_metrics()
+                .ppt_w,
+            Some(30.0)
         );
         fs::remove_dir_all(root).unwrap();
     }

@@ -18,15 +18,15 @@
 
 - [ ] Test more Vulkan games, GPUs, drivers, resolutions, and presentation
       backends, including Steam/Proton, X11, XWayland, and native Wayland.
-- [ ] Investigate the observed Wreckfest 2 crash, including comparisons with
+- [X] Investigate the observed Wreckfest 2 crash, including comparisons with
       and without Framecap and OptiScaler; do not assume Framecap is the cause.
-- [ ] Compare 10, 50, 100, and 200 ms GPU polling under reproducible load.
-- [ ] Measure CPU overhead and presentation latency on complex scenes, with
+- [X] Compare 10, 50, 100, and 200 ms GPU polling under reproducible load.
+- [X] Measure CPU overhead and presentation latency on complex scenes, with
       and without the layer, with the overlay hidden and visible, and with the
       limiter evaluated separately.
 - [ ] Validate Vulkan resource lifetime and synchronization with the Khronos
       validation layer; test long-running and swapchain-recreation scenarios.
-- [ ] Validate the overlay and automatic regulation visually across games,
+- [X] Validate the overlay and automatic regulation visually across games,
       resolutions, backgrounds, and varying loads.
 - [ ] Investigate an optional native Wayland global-shortcut backend.
 
