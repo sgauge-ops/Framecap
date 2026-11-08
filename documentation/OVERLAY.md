@@ -3,12 +3,12 @@
 The overlay presents:
 
 ```text
-MANUAL: | [F9] CYCLE MODE | [F10] -5 FPS | [F11] +5 FPS | [F12] CYCLE OSD |
-AUTO:   | [F9] CYCLE MODE | [F10] -1 %   | [F11] +1 %   | [F12] CYCLE OSD |
-        | MODE: MANUAL/AUTO (JIT/VRM/FAN)/OFF | CAP: xx FPS | HYS: xx % | TARGET: xx UNIT |
-        | xx FPS | 10% LOW: xx FPS | JIT: xx MS |
-        | GPU: xx °C | VRM: xx °C | Load: xx % | PPT: xx W |
-        | CPU: xx °C | VRM: xx °C | Load: xx % | RPM: xx RPM |
+MANUAL:  [F9] CYCLE MODE  | [F10]  -5 FPS    | [F11]  +5 FPS    | [F12] CYCLE OSD
+AUTO:    [F9] CYCLE MODE  | [F10]  -1 %      | [F11]  +1 %      | [F12] CYCLE OSD
+         MODE: AUTO (JIT) | CAP:     60 FPS  | HYS:   5.0 %     | TARGET: 60 FPS
+         FPS:   60        | 10% LOW: 55 FPS  | JIT:   0.5 MS    |
+         GPU:   43 °C     | VRM:   57 °C     | Load:   55 %     | PPT:  32.6 W
+         CPU:   70 °C     | VRM:   61 °C     | Load:   35 %     | RPM:  1240 RPM
 ```
 
 F12 cycles full overlay → FPS only → off → full overlay. FPS-only mode
@@ -24,9 +24,11 @@ An invalid RGB array rejects the configuration file, as with other invalid TOML
 types.
 
 Columns are aligned across lines: F10/CAP/10% LOW/VRM, F11/HYS/JIT/Load,
-and F12/TARGET/PPT/RPM. In AUTO, TARGET shows the selected algorithm's
-reference: the displayed 10% low in FPS for JIT, the configured temperature
-in °C for VRM, or the configured speed in RPM for FAN. JIT shows
+and F12/TARGET/PPT/RPM. In the full overlay, FPS is shown as `FPS: value`;
+while collecting, both FPS and 10% LOW show `COLLECT`. In AUTO, TARGET shows
+the selected algorithm's reference: the displayed 10% low in FPS for JIT,
+the configured temperature in °C for VRM, or the configured speed in RPM for
+FAN. JIT shows
 `TARGET: COLLECT FPS` while its reference is unavailable; MANUAL and OFF show
 `TARGET: --`. A cap change highlights `CAP`, a change in active
 hysteresis highlights `HYS`, and a key press highlights that key for one

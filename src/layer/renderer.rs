@@ -6,9 +6,9 @@ use std::sync::atomic::{AtomicU8, Ordering};
 use std::time::{Duration, Instant};
 
 const FEEDBACK_VISIBLE_FOR: Duration = Duration::from_secs(1);
-const FIRST_COLUMN: usize = 18;
-const SECOND_COLUMN: usize = 42;
-const THIRD_COLUMN: usize = 64;
+const FIRST_COLUMN: usize = 17;
+const SECOND_COLUMN: usize = 36;
+const THIRD_COLUMN: usize = 55;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u8)]
@@ -148,7 +148,7 @@ impl Renderer {
 
     /// Formats the displayed frame-rate and frame-pacing metrics.
     pub fn fps_text(metrics: &MetricsSnapshot) -> String {
-        format!("| {:>5} FPS", Self::fps_value(metrics))
+        format!("{:>5} FPS", Self::fps_value(metrics))
     }
 
     pub fn text(metrics: &MetricsSnapshot) -> String {
@@ -160,17 +160,14 @@ impl Renderer {
             "COLLECT".to_owned()
         };
         let low_10 = if low_10_fps.is_finite() && low_10_fps >= 0.0 {
-            format!("{low_10_fps:.0}")
+            format!("{low_10_fps:.0} FPS")
         } else {
             "COLLECT".to_owned()
         };
-        let mut text = Self::fps_text(metrics);
-        append_at_column(
-            &mut text,
-            FIRST_COLUMN,
-            &format!("| 10% LOW: {low_10:>5} FPS"),
-        );
-        append_at_column(&mut text, SECOND_COLUMN, &format!("| JIT: {jitter:>4} MS"));
+        let mut text = format!("FPS: {:>4}", Self::fps_value(metrics));
+        append_at_column(&mut text, FIRST_COLUMN, &format!("| 10% LOW: {low_10}"));
+        append_at_column(&mut text, SECOND_COLUMN, &format!("| JIT: {jitter:>5} MS"));
+        append_at_column(&mut text, THIRD_COLUMN, "|");
         text
     }
 
@@ -233,16 +230,16 @@ impl Renderer {
         } else {
             ("--".into(), "--".into())
         };
-        let mut text = format!("| [{}] CYCLE MODE", hotkeys[0].label());
+        let mut text = format!("[{}] CYCLE MODE", hotkeys[0].label());
         append_at_column(
             &mut text,
             FIRST_COLUMN,
-            &format!("| [{}] {}", hotkeys[2].label(), down_hint),
+            &format!("| [{}]  {}", hotkeys[2].label(), down_hint),
         );
         append_at_column(
             &mut text,
             SECOND_COLUMN,
-            &format!("| [{}] {}", hotkeys[1].label(), up_hint),
+            &format!("| [{}]  {}", hotkeys[1].label(), up_hint),
         );
         append_at_column(
             &mut text,
@@ -273,11 +270,11 @@ impl Renderer {
             },
             |label| format!("AUTO ({label})"),
         );
-        let mut text = format!("| MODE: {mode}");
+        let mut text = format!("MODE: {mode}");
         append_at_column(
             &mut text,
             FIRST_COLUMN,
-            &format!("| CAP: {:>5} FPS", target),
+            &format!("| CAP: {:>6} FPS", target),
         );
         append_at_column(
             &mut text,
@@ -381,16 +378,16 @@ fn sensor_text(
     final_metric_precision: usize,
     final_metric_unit: &str,
 ) -> String {
-    let mut text = format!("| {label}: {:>5} °C", format_optional(temperature_c, 0));
+    let mut text = format!("{label}: {:>4} °C", format_optional(temperature_c, 0));
     append_at_column(
         &mut text,
         FIRST_COLUMN,
-        &format!("| VRM: {:>5} °C", format_optional(vrm_temperature_c, 0)),
+        &format!("| VRM: {:>4} °C", format_optional(vrm_temperature_c, 0)),
     );
     append_at_column(
         &mut text,
         SECOND_COLUMN,
-        &format!("| Load: {:>5}", load_display),
+        &format!("| Load: {:>6}", load_display),
     );
     append_at_column(
         &mut text,
@@ -1289,7 +1286,7 @@ impl VulkanSwapchainRenderer {
                 target_scale,
                 status_top,
                 &format!(
-                    "CAP: {:>5} FPS",
+                    "CAP: {:>6} FPS",
                     target_fps
                         .map(format_fps)
                         .unwrap_or_else(|| "OFF".to_owned())
@@ -1498,7 +1495,7 @@ mod tests {
             },
             now,
         );
-        assert_eq!(Renderer::fps_text(&metrics), "|    60 FPS");
+        assert_eq!(Renderer::fps_text(&metrics), "   60 FPS");
         assert!(Renderer::text(&metrics).contains("10% LOW"));
         let collecting = MetricsSnapshot::new_with_fps(
             0.0,
@@ -1508,9 +1505,14 @@ mod tests {
             metrics.gpu_measurement().clone(),
             now,
         );
-        assert_eq!(Renderer::fps_text(&collecting), "| COLLECT FPS");
-        for (snapshot, value, column) in [(&metrics, "60", 5), (&collecting, "COLLECT", 2)] {
-            for text in [Renderer::fps_text(snapshot), Renderer::text(snapshot)] {
+        assert_eq!(Renderer::fps_text(&collecting), "COLLECT FPS");
+        for (snapshot, value, fps_column, full_column) in
+            [(&metrics, "60", 3, 7), (&collecting, "COLLECT", 0, 5)]
+        {
+            for (text, column) in [
+                (Renderer::fps_text(snapshot), fps_column),
+                (Renderer::text(snapshot), full_column),
+            ] {
                 for scale in [1, 2] {
                     let rects = Renderer::fps_value_rects(&text, snapshot, [1200, 100], scale, 25);
                     assert!(!rects.is_empty());
@@ -1543,16 +1545,24 @@ mod tests {
         let manual = target_text(Some(60.0), None);
         let auto = target_text(Some(75.0), Some(1));
         let off = target_text(None, None);
-        assert!(manual.contains("| [F10] -5 FPS"));
-        assert!(manual.contains("| [F11] +5 FPS"));
+        assert_eq!(
+            manual,
+            "[F9] CYCLE MODE  | [F10]  -5 FPS    | [F11]  +5 FPS    | [F12] CYCLE OSD"
+        );
+        assert_eq!(
+            auto,
+            "[F9] CYCLE MODE  | [F10]  -1 %      | [F11]  +1 %      | [F12] CYCLE OSD"
+        );
+        assert!(manual.contains("| [F10]  -5 FPS"));
+        assert!(manual.contains("| [F11]  +5 FPS"));
         assert!(manual.contains("| [F12] CYCLE OSD"));
-        assert!(auto.contains("| [F10] -1 %"));
-        assert!(auto.contains("| [F11] +1 %"));
+        assert!(auto.contains("| [F10]  -1 %"));
+        assert!(auto.contains("| [F11]  +1 %"));
         assert!(auto.contains("| [F12] CYCLE OSD"));
-        assert!(off.contains("[F10] --") && off.contains("[F11] --"));
+        assert!(off.contains("[F10]  --") && off.contains("[F11]  --"));
         let status = Renderer::status_text(Some(60.0), None, None, None);
         assert!(status.contains("MODE: MANUAL"));
-        assert!(status.contains("| CAP:    60 FPS"));
+        assert!(status.contains("| CAP:     60 FPS"));
         assert!(status.contains("| HYS:    -- %"));
         let auto_status = Renderer::status_text(Some(75.0), Some("VRM"), Some(5.0), Some("100 °C"));
         assert!(auto_status.contains("MODE: AUTO (VRM)"));
@@ -1568,7 +1578,7 @@ mod tests {
             .chars()
             .filter(|character| !character.is_whitespace())
             .all(|character| glyph(character) != [0; 7]));
-        assert!(Renderer::status_text(None, None, None, None).contains("CAP:   OFF FPS"));
+        assert!(Renderer::status_text(None, None, None, None).contains("CAP:    OFF FPS"));
         let text = target_text(Some(60.0), None);
         assert!(text
             .chars()
@@ -1582,9 +1592,9 @@ mod tests {
         let now = Instant::now();
         let metrics_snapshot = MetricsSnapshot::new_with_hardware_metrics(
             16.0,
-            45.0,
-            0.5,
             60.0,
+            0.5,
+            55.0,
             GpuMeasurement {
                 value: 55.0,
                 timestamp: now,
@@ -1605,19 +1615,33 @@ mod tests {
             now,
         );
         let metrics = Renderer::text(&metrics_snapshot);
-        assert!(metrics.contains("   45 FPS"));
-        assert!(metrics.contains("| 10% LOW:    60 FPS"));
+        assert_eq!(
+            metrics,
+            "FPS:   60        | 10% LOW: 55 FPS  | JIT:   0.5 MS    |"
+        );
+        assert_eq!(
+            Renderer::status_text(Some(60.0), Some("JIT"), Some(5.0), Some("60 FPS")),
+            "MODE: AUTO (JIT) | CAP:     60 FPS  | HYS:   5.0 %     | TARGET: 60 FPS"
+        );
         let metrics_rects = Renderer::text_rects_at(&metrics, [640, 480], 1, 17);
         assert!(metrics_rects.iter().all(|rect| rect.y >= 17 && rect.y < 31));
         let gpu_sensors = Renderer::gpu_sensor_text(&metrics_snapshot);
         let cpu_sensors = Renderer::cpu_sensor_text(&metrics_snapshot);
-        assert!(gpu_sensors.contains("| GPU:    43 °C"));
-        assert!(gpu_sensors.contains("| VRM:    57 °C"));
-        assert!(gpu_sensors.contains("| Load:  55 %"));
+        assert_eq!(
+            gpu_sensors,
+            "GPU:   43 °C     | VRM:   57 °C     | Load:   55 %     | PPT:  32.6 W"
+        );
+        assert_eq!(
+            cpu_sensors,
+            "CPU:   70 °C     | VRM:   61 °C     | Load:   35 %     | RPM:  1240 RPM"
+        );
+        assert!(gpu_sensors.starts_with("GPU:   43 °C"));
+        assert!(gpu_sensors.contains("| VRM:   57 °C"));
+        assert!(gpu_sensors.contains("| Load:   55 %"));
         assert!(gpu_sensors.contains("| PPT:  32.6 W"));
-        assert!(cpu_sensors.contains("| CPU:    70 °C"));
-        assert!(cpu_sensors.contains("| VRM:    61 °C"));
-        assert!(cpu_sensors.contains("| Load:  35 %"));
+        assert!(cpu_sensors.starts_with("CPU:   70 °C"));
+        assert!(cpu_sensors.contains("| VRM:   61 °C"));
+        assert!(cpu_sensors.contains("| Load:   35 %"));
         assert!(cpu_sensors.contains("| RPM:  1240 RPM"));
         assert!(gpu_sensors
             .chars()
@@ -1653,11 +1677,11 @@ mod tests {
             assert_eq!(char_column(line, marker), THIRD_COLUMN);
         }
         assert_eq!(char_column(&metrics, "| JIT:"), SECOND_COLUMN);
-        assert_eq!(char_column(&gpu_sensors, "| GPU:"), 0);
-        assert_eq!(char_column(&cpu_sensors, "| CPU:"), 0);
+        assert_eq!(metrics.chars().last(), Some('|'));
+        assert_eq!(metrics.chars().count() - 1, THIRD_COLUMN);
         assert!([&manual, &status, &metrics, &gpu_sensors, &cpu_sensors,]
             .into_iter()
-            .all(|line| line.starts_with('|')));
+            .all(|line| !line.trim_start().starts_with('|')));
         for unit in [" °C", " %"] {
             assert_eq!(
                 char_column(&gpu_sensors, unit),
@@ -1734,8 +1758,8 @@ mod tests {
     /// Checks that fractional target FPS values retain their decimal precision.
     fn target_text_preserves_fractional_fps_settings() {
         let text = Renderer::target_text(Some(77.5), None, HOTKEYS, 5.5);
-        assert!(text.contains("| [F10] -5.5 FPS"));
-        assert!(text.contains("| [F11] +5.5 FPS"));
+        assert!(text.contains("| [F10]  -5.5 FPS"));
+        assert!(text.contains("| [F11]  +5.5 FPS"));
         assert!(
             Renderer::status_text(Some(77.5), Some("JIT"), Some(5.5), Some("60 FPS"))
                 .contains("HYS:   5.5 %")
@@ -1748,7 +1772,7 @@ mod tests {
         let hotkeys = [Hotkey::F12, Hotkey::F9, Hotkey::F10, Hotkey::F11];
         let text = Renderer::target_text(Some(60.0), None, hotkeys, 2.5);
         assert!(text.contains("[F12] CYCLE MODE"));
-        assert!(text.contains("[F10] -2.5 FPS"));
+        assert!(text.contains("[F10]  -2.5 FPS"));
         let highlights = Renderer::feedback_rects(&text, [1200, 100], 1, 8, "[F9]");
         let f9_start = text.find("[F9]").unwrap() as u32 * 6 + 8;
         assert!(!highlights.is_empty());
@@ -1761,7 +1785,7 @@ mod tests {
     /// Checks that cap and hysteresis feedback highlight their status fields.
     fn cap_and_hysteresis_feedback_highlight_their_status_fields() {
         let status = Renderer::status_text(Some(62.5), Some("JIT"), Some(10.0), Some("60 FPS"));
-        for field in ["CAP:  62.5 FPS", "HYS:  10.0 %"] {
+        for field in ["CAP:   62.5 FPS", "HYS:  10.0 %"] {
             let highlights = Renderer::feedback_rects(&status, [1200, 100], 1, 17, field);
             assert!(!highlights.is_empty());
         }
@@ -1892,9 +1916,13 @@ mod tests {
             now,
         );
         let text = Renderer::text(&metrics);
-        assert!(text.contains("COLLECT FPS"));
-        assert!(text.contains("| 10% LOW: COLLECT FPS"));
+        assert!(text.starts_with("FPS: COLLECT"));
+        assert!(text.contains("| 10% LOW: COLLECT "));
         assert!(text.contains("| JIT: COLLECT MS"));
+        assert_eq!(char_column(&text, "| 10% LOW:"), FIRST_COLUMN);
+        assert_eq!(char_column(&text, "| JIT:"), SECOND_COLUMN);
+        assert_eq!(text.chars().last(), Some('|'));
+        assert_eq!(text.chars().count() - 1, THIRD_COLUMN);
     }
 
     #[test]
@@ -1917,10 +1945,10 @@ mod tests {
             );
             Renderer::gpu_sensor_text(&metrics)
         };
-        assert!(text_for(TelemetryStatus::Available).contains("Load:  92 %"));
-        assert!(text_for(TelemetryStatus::Expired).contains("Load: STALE"));
-        assert!(text_for(TelemetryStatus::Unsupported).contains("Load:   N/A"));
-        assert!(text_for(TelemetryStatus::Error).contains("Load:   ERR"));
+        assert!(text_for(TelemetryStatus::Available).contains("Load:   92 %"));
+        assert!(text_for(TelemetryStatus::Expired).contains("Load:  STALE"));
+        assert!(text_for(TelemetryStatus::Unsupported).contains("Load:    N/A"));
+        assert!(text_for(TelemetryStatus::Error).contains("Load:    ERR"));
     }
 
     #[test]
