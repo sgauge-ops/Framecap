@@ -20,6 +20,10 @@ F12 cycles Framecap's overlay through full, FPS only, and off. Background logic 
 
 Framecap's behavior is largely configurable in `framecap.toml`
 
+The supplied configuration selects the graphical dashboard. Set
+`[overlay].renderer = "classic"` to use the original text overlay instead;
+both layouts retain the same F12 display modes and controls.
+
 # Short installation guide
 
 ## Download and build

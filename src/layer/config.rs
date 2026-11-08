@@ -1,5 +1,7 @@
 use crate::layer::diagnostics;
-use crate::layer::settings::{self, AutoAlgorithmSettings, AutoTargetSettings, MetricsSettings};
+use crate::layer::settings::{
+    self, AutoAlgorithmSettings, AutoTargetSettings, MetricsSettings, OverlayRenderer,
+};
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -108,6 +110,7 @@ pub struct Config {
     pub refresh_rate: u64,
     pub scale_2x_min_width_px: u32,
     pub overlay_background_opacity: f32,
+    pub overlay_renderer: OverlayRenderer,
     pub overlay_fps_color: [u8; 3],
     pub startup: u8,
     pub auto_algorithms: Vec<AutoAlgorithmConfig>,
@@ -236,6 +239,7 @@ impl Config {
             gpu_decrease_limit,
             frame_jitter_limit_ms,
             overlay_background_opacity: background_opacity,
+            overlay_renderer: overlay.renderer,
             overlay_fps_color: overlay.fps_color,
             startup,
             manual_step_fps,

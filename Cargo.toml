@@ -21,6 +21,7 @@ parking_lot = "0.8"
 libloading = "0.8"
 serde = { version = "1.0", features = ["derive"] }
 toml = "0.8"
+fontdue = "0.9"
 
 [build-dependencies]
 # We'll need to handle the Vulkan Layer entry points specifically.

@@ -14,6 +14,7 @@ fn run_vkcube(
     layer_enabled: bool,
     target_fps: Option<&str>,
     overlay_startup: u8,
+    renderer: &str,
     frame_count: u32,
     immediate: bool,
 ) -> (Output, Duration, String) {
@@ -33,7 +34,7 @@ fn run_vkcube(
     fs::write(
         config_dir.join("framecap.toml"),
         format!(
-            "[framecap]\ntarget_fps = {target_fps}\ninput_enabled = false\n\n[overlay]\nstartup = {overlay_startup}\nfps_color = [17, 128, 240]\n\n[diagnostics]\nlog_path = {:?}\n",
+            "[framecap]\ntarget_fps = {target_fps}\ninput_enabled = false\n\n[overlay]\nstartup = {overlay_startup}\nrenderer = \"{renderer}\"\nfps_color = [17, 128, 240]\n\n[diagnostics]\nlog_path = {:?}\n",
             log_path.display().to_string()
         ),
     )
@@ -84,7 +85,8 @@ fn vkcube_presents_with_and_without_framecap_layer() {
     }
 
     for layer_enabled in [false, true] {
-        let (output, _, diagnostic_log) = run_vkcube(root, wsi, layer_enabled, None, 2, 60, false);
+        let (output, _, diagnostic_log) =
+            run_vkcube(root, wsi, layer_enabled, None, 2, "classic", 60, false);
         let log = format!(
             "{}\n{}\n{}",
             String::from_utf8_lossy(&output.stdout),
@@ -115,30 +117,35 @@ fn vkcube_presents_with_and_without_framecap_layer() {
         }
     }
 
-    for mode in 0..=2 {
-        let (output, _, diagnostic_log) = run_vkcube(root, wsi, true, None, mode, 20, false);
-        assert!(output.status.success(), "mode {mode} failed: {output:?}");
-        assert!(
-            diagnostic_log.contains(&format!("overlay_startup={mode}")),
-            "mode {mode} was not loaded:\n{diagnostic_log}"
-        );
-        assert!(
-            diagnostic_log.contains("fps_color=[17, 128, 240]"),
-            "custom FPS color was not loaded:\n{diagnostic_log}"
-        );
-        assert!(
-            diagnostic_log.contains("overlay renderer initialized"),
-            "mode {mode} did not initialize a renderer:\n{diagnostic_log}"
-        );
+    for (renderer, expected) in [("classic", "Classic"), ("dashboard", "Dashboard")] {
+        for mode in 0..=2 {
+            let (output, _, diagnostic_log) =
+                run_vkcube(root, wsi, true, None, mode, renderer, 20, false);
+            assert!(output.status.success(), "mode {mode} failed: {output:?}");
+            assert!(
+                diagnostic_log.contains(&format!("overlay_startup={mode}")),
+                "mode {mode} was not loaded:\n{diagnostic_log}"
+            );
+            assert!(
+                diagnostic_log.contains("fps_color=[17, 128, 240]"),
+                "custom FPS color was not loaded:\n{diagnostic_log}"
+            );
+            assert!(
+                diagnostic_log.contains("overlay renderer initialized"),
+                "mode {mode} did not initialize a renderer:\n{diagnostic_log}"
+            );
+            assert!(diagnostic_log.contains(&format!("overlay_renderer={expected}")));
+        }
     }
 
-    let (uncapped_output, uncapped_time, _) = run_vkcube(root, wsi, true, Some("0"), 2, 30, true);
+    let (uncapped_output, uncapped_time, _) =
+        run_vkcube(root, wsi, true, Some("0"), 2, "classic", 30, true);
     if !uncapped_output.status.success() {
         eprintln!("Skipping frame-cap timing check: immediate present mode is unavailable");
         return;
     }
     let (capped_output, capped_time, diagnostic_log) =
-        run_vkcube(root, wsi, true, Some("30"), 2, 30, true);
+        run_vkcube(root, wsi, true, Some("30"), 2, "classic", 30, true);
     let capped_log = format!(
         "{}\n{}\n{}",
         String::from_utf8_lossy(&capped_output.stdout),

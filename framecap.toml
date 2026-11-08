@@ -24,6 +24,7 @@ ppt_power = { device = "amdgpu", label = "PPT" }
 fan_rpm = { device = "nct6686", label = "Pump Fan" }
 
 [overlay]
+renderer = "dashboard"              # "dashboard" graphical layout or "classic" text layout; built-in default: "classic".
 startup = 2                         # Overlay at startup: 0 off, 1 FPS only, 2 full. Built-in default: 2.
 background_opacity = 0.5            # Overlay background opacity. Built-in default: 0.25; 0.0 is fully transparent and 1.0 fully opaque; valid range: 0.0-1.0; invalid values use the default.
 fps_color = [255, 255, 0]           # FPS value color as RGB integers (0-255). Built-in default: yellow [255, 255, 0].

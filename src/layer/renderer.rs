@@ -1,9 +1,13 @@
 use crate::layer::config::{AutoMetric, AutoTarget, Hotkey};
 use crate::layer::lib::{GpuMeasurement, HardwareMetrics, MetricsSnapshot, TelemetryStatus};
+use crate::layer::settings::OverlayRenderer;
 use ash::vk;
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::time::{Duration, Instant};
+
+#[path = "dashboard.rs"]
+mod dashboard;
 
 const FEEDBACK_VISIBLE_FOR: Duration = Duration::from_secs(1);
 const FIRST_COLUMN: usize = 17;
@@ -521,11 +525,13 @@ struct ImageResources {
 pub struct VulkanSwapchainRenderer {
     extent: vk::Extent2D,
     background_opacity: f32,
+    renderer: OverlayRenderer,
     fps_color: [u8; 3],
     scale_2x_min_width_px: u32,
     overlay_refresh_rate: u64,
     overlay_poll_count: u64,
     displayed_metrics: Option<MetricsSnapshot>,
+    dashboard: Option<(dashboard::DashboardKey, dashboard::PreparedDashboard)>,
     render_pass: vk::RenderPass,
     background_pipeline_layout: vk::PipelineLayout,
     background_pipeline: vk::Pipeline,
@@ -649,19 +655,28 @@ fn create_background_pipeline(
     device: &ash::Device,
     render_pass: vk::RenderPass,
     extent: vk::Extent2D,
+    renderer: OverlayRenderer,
 ) -> Result<(vk::PipelineLayout, vk::Pipeline), vk::Result> {
-    let vertex_code = ash::util::read_spv(&mut std::io::Cursor::new(include_bytes!(
-        "shaders/overlay_background.vert.spv"
-    )))
-    .map_err(|_| vk::Result::ERROR_UNKNOWN)?;
-    let fragment_code = ash::util::read_spv(&mut std::io::Cursor::new(include_bytes!(
-        "shaders/overlay_background.frag.spv"
-    )))
-    .map_err(|_| vk::Result::ERROR_UNKNOWN)?;
+    let (vertex_bytes, fragment_bytes, push_size): (&[u8], &[u8], u32) = match renderer {
+        OverlayRenderer::Classic => (
+            include_bytes!("shaders/overlay_background.vert.spv"),
+            include_bytes!("shaders/overlay_background.frag.spv"),
+            20,
+        ),
+        OverlayRenderer::Dashboard => (
+            include_bytes!("shaders/dashboard.vert.spv"),
+            include_bytes!("shaders/dashboard.frag.spv"),
+            128,
+        ),
+    };
+    let vertex_code = ash::util::read_spv(&mut std::io::Cursor::new(vertex_bytes))
+        .map_err(|_| vk::Result::ERROR_UNKNOWN)?;
+    let fragment_code = ash::util::read_spv(&mut std::io::Cursor::new(fragment_bytes))
+        .map_err(|_| vk::Result::ERROR_UNKNOWN)?;
     let push_constants = [vk::PushConstantRange::default()
         .stage_flags(vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT)
         .offset(0)
-        .size(20)];
+        .size(push_size)];
     let layout_info = vk::PipelineLayoutCreateInfo::default().push_constant_ranges(&push_constants);
     let layout = unsafe { device.create_pipeline_layout(&layout_info, None)? };
 
@@ -773,6 +788,7 @@ impl VulkanSwapchainRenderer {
         minimum_collection_interval: Duration,
         overlay_refresh_rate: u64,
         background_opacity: f32,
+        renderer: OverlayRenderer,
         fps_color: [u8; 3],
         scale_2x_min_width_px: u32,
     ) -> Result<Self, vk::Result> {
@@ -796,7 +812,7 @@ impl VulkanSwapchainRenderer {
             .subpasses(&subpass);
         let render_pass = unsafe { device.create_render_pass(&render_pass_info, None)? };
         let (background_pipeline_layout, background_pipeline) =
-            match create_background_pipeline(device, render_pass, extent) {
+            match create_background_pipeline(device, render_pass, extent, renderer) {
                 Ok(pipeline) => pipeline,
                 Err(error) => {
                     unsafe { device.destroy_render_pass(render_pass, None) };
@@ -881,11 +897,13 @@ impl VulkanSwapchainRenderer {
         Ok(Self {
             extent,
             background_opacity,
+            renderer,
             fps_color,
             scale_2x_min_width_px,
             overlay_refresh_rate: overlay_refresh_rate.max(1),
             overlay_poll_count: 0,
             displayed_metrics: None,
+            dashboard: None,
             render_pass,
             background_pipeline_layout,
             background_pipeline,
@@ -1068,337 +1086,393 @@ impl VulkanSwapchainRenderer {
             device.cmd_begin_render_pass(command_buffer, &render_begin, vk::SubpassContents::INLINE)
         };
 
-        let full = overlay_mode == OverlayMode::Full;
-        let text = if full {
-            Renderer::text(metrics)
-        } else {
-            Renderer::fps_text(metrics)
-        };
-        let (gpu_sensor_text, cpu_sensor_text, target_text, status_text) = if full {
-            let formatted_auto_target =
-                auto_target.map(|target| format_auto_target(target, metrics));
-            (
-                Renderer::gpu_sensor_text(metrics),
-                Renderer::cpu_sensor_text(metrics),
-                Renderer::target_text(target_fps, auto_algorithm_index, hotkeys, manual_step_fps),
-                Renderer::status_text(
+        if self.renderer == OverlayRenderer::Dashboard {
+            let key = dashboard::DashboardKey {
+                timestamp: metrics.timestamp(),
+                mode: overlay_mode,
+                target_fps,
+                auto_algorithm_index,
+                auto_algorithm_label: auto_algorithm_label.map(str::to_owned),
+                hysteresis_percent,
+                auto_target,
+                hotkeys,
+                manual_step_fps,
+                feedback,
+            };
+            if self.dashboard.as_ref().is_none_or(|(old, _)| *old != key) {
+                let dashboard = dashboard::layout(
+                    metrics,
+                    overlay_mode,
                     target_fps,
+                    auto_algorithm_index,
                     auto_algorithm_label,
                     hysteresis_percent,
-                    formatted_auto_target.as_deref(),
-                ),
-            )
-        } else {
-            (String::new(), String::new(), String::new(), String::new())
-        };
-        let feedback = if full {
-            feedback
-        } else {
-            OverlayFeedback::default()
-        };
-        let widest_line = [
-            &text,
-            &gpu_sensor_text,
-            &cpu_sensor_text,
-            &target_text,
-            &status_text,
-        ]
-        .into_iter()
-        .map(|line| line.chars().count() as u32)
-        .max()
-        .unwrap_or_default();
-        let scale = overlay_text_scale(self.extent.width, self.scale_2x_min_width_px, widest_line);
-        let target_scale = scale;
-        let status_top = 8 + 7 * target_scale + 3;
-        let metrics_top = if full {
-            status_top + 7 * target_scale + 3
-        } else {
-            8
-        };
-        let row_step = 7 * scale + 3;
-        let gpu_sensor_top = metrics_top + row_step;
-        let cpu_sensor_top = gpu_sensor_top + row_step;
-        let background_width = (widest_line * 6 * scale + 20).min(self.extent.width);
-        let bottom_row_top = if full { cpu_sensor_top } else { metrics_top };
-        let background_height = (bottom_row_top + 7 * scale + 8).min(self.extent.height);
-        if self.background_opacity > 0.0 {
-            let rect = [
-                -1.0,
-                -1.0,
-                2.0 * background_width as f32 / self.extent.width as f32 - 1.0,
-                2.0 * background_height as f32 / self.extent.height as f32 - 1.0,
-                self.background_opacity.clamp(0.0, 1.0),
-            ];
-            let constants = unsafe {
-                std::slice::from_raw_parts(rect.as_ptr().cast::<u8>(), std::mem::size_of_val(&rect))
-            };
-            unsafe {
-                device.cmd_bind_pipeline(
-                    command_buffer,
-                    vk::PipelineBindPoint::GRAPHICS,
-                    self.background_pipeline,
-                );
-                device.cmd_push_constants(
-                    command_buffer,
-                    self.background_pipeline_layout,
-                    vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
-                    0,
-                    constants,
-                );
-                device.cmd_draw(command_buffer, 6, 1, 0, 0);
+                    auto_target,
+                    hotkeys,
+                    manual_step_fps,
+                    feedback,
+                    dashboard::scale_for(overlay_mode, self.extent, self.scale_2x_min_width_px),
+                )
+                .prepare(self.extent);
+                self.dashboard = Some((key, dashboard));
             }
-        }
+            let dashboard = &self
+                .dashboard
+                .as_ref()
+                .expect("dashboard cache initialized")
+                .1;
+            dashboard.draw(
+                device,
+                command_buffer,
+                self.extent,
+                self.background_pipeline,
+                self.background_pipeline_layout,
+                self.background_opacity,
+                self.fps_color,
+            );
+        } else {
+            let full = overlay_mode == OverlayMode::Full;
+            let text = if full {
+                Renderer::text(metrics)
+            } else {
+                Renderer::fps_text(metrics)
+            };
+            let (gpu_sensor_text, cpu_sensor_text, target_text, status_text) = if full {
+                let formatted_auto_target =
+                    auto_target.map(|target| format_auto_target(target, metrics));
+                (
+                    Renderer::gpu_sensor_text(metrics),
+                    Renderer::cpu_sensor_text(metrics),
+                    Renderer::target_text(
+                        target_fps,
+                        auto_algorithm_index,
+                        hotkeys,
+                        manual_step_fps,
+                    ),
+                    Renderer::status_text(
+                        target_fps,
+                        auto_algorithm_label,
+                        hysteresis_percent,
+                        formatted_auto_target.as_deref(),
+                    ),
+                )
+            } else {
+                (String::new(), String::new(), String::new(), String::new())
+            };
+            let feedback = if full {
+                feedback
+            } else {
+                OverlayFeedback::default()
+            };
+            let widest_line = [
+                &text,
+                &gpu_sensor_text,
+                &cpu_sensor_text,
+                &target_text,
+                &status_text,
+            ]
+            .into_iter()
+            .map(|line| line.chars().count() as u32)
+            .max()
+            .unwrap_or_default();
+            let scale =
+                overlay_text_scale(self.extent.width, self.scale_2x_min_width_px, widest_line);
+            let target_scale = scale;
+            let status_top = 8 + 7 * target_scale + 3;
+            let metrics_top = if full {
+                status_top + 7 * target_scale + 3
+            } else {
+                8
+            };
+            let row_step = 7 * scale + 3;
+            let gpu_sensor_top = metrics_top + row_step;
+            let cpu_sensor_top = gpu_sensor_top + row_step;
+            let background_width = (widest_line * 6 * scale + 20).min(self.extent.width);
+            let bottom_row_top = if full { cpu_sensor_top } else { metrics_top };
+            let background_height = (bottom_row_top + 7 * scale + 8).min(self.extent.height);
+            if self.background_opacity > 0.0 {
+                let rect = [
+                    -1.0,
+                    -1.0,
+                    2.0 * background_width as f32 / self.extent.width as f32 - 1.0,
+                    2.0 * background_height as f32 / self.extent.height as f32 - 1.0,
+                    self.background_opacity.clamp(0.0, 1.0),
+                ];
+                let constants = unsafe {
+                    std::slice::from_raw_parts(
+                        rect.as_ptr().cast::<u8>(),
+                        std::mem::size_of_val(&rect),
+                    )
+                };
+                unsafe {
+                    device.cmd_bind_pipeline(
+                        command_buffer,
+                        vk::PipelineBindPoint::GRAPHICS,
+                        self.background_pipeline,
+                    );
+                    device.cmd_push_constants(
+                        command_buffer,
+                        self.background_pipeline_layout,
+                        vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
+                        0,
+                        constants,
+                    );
+                    device.cmd_draw(command_buffer, 6, 1, 0, 0);
+                }
+            }
 
-        let metric_rectangles = [
-            (&text, metrics_top),
-            (&gpu_sensor_text, gpu_sensor_top),
-            (&cpu_sensor_text, cpu_sensor_top),
-        ]
-        .into_iter()
-        .flat_map(|(line, top)| {
-            Renderer::text_rects_at(line, [self.extent.width, self.extent.height], scale, top)
-        })
-        .map(|rect| {
-            vk::ClearRect::default()
-                .rect(
-                    vk::Rect2D::default()
-                        .offset(vk::Offset2D {
-                            x: rect.x as i32,
-                            y: rect.y as i32,
-                        })
-                        .extent(vk::Extent2D {
-                            width: rect.width,
-                            height: rect.height,
-                        }),
-                )
-                .base_array_layer(0)
-                .layer_count(1)
-        })
-        .collect::<Vec<_>>();
-        let fps_rectangles = Renderer::fps_value_rects(
-            &text,
-            metrics,
-            [self.extent.width, self.extent.height],
-            scale,
-            metrics_top,
-        )
-        .into_iter()
-        .map(|rect| {
-            vk::ClearRect::default()
-                .rect(
-                    vk::Rect2D::default()
-                        .offset(vk::Offset2D {
-                            x: rect.x as i32,
-                            y: rect.y as i32,
-                        })
-                        .extent(vk::Extent2D {
-                            width: rect.width,
-                            height: rect.height,
-                        }),
-                )
-                .base_array_layer(0)
-                .layer_count(1)
-        })
-        .collect::<Vec<_>>();
-        let target_rectangles = Renderer::text_rects_at(
-            &target_text,
-            [self.extent.width, self.extent.height],
-            target_scale,
-            8,
-        )
-        .into_iter()
-        .map(|rect| {
-            vk::ClearRect::default()
-                .rect(
-                    vk::Rect2D::default()
-                        .offset(vk::Offset2D {
-                            x: rect.x as i32,
-                            y: rect.y as i32,
-                        })
-                        .extent(vk::Extent2D {
-                            width: rect.width,
-                            height: rect.height,
-                        }),
-                )
-                .base_array_layer(0)
-                .layer_count(1)
-        })
-        .collect::<Vec<_>>();
-        let status_rectangles = Renderer::text_rects_at(
-            &status_text,
-            [self.extent.width, self.extent.height],
-            target_scale,
-            status_top,
-        )
-        .into_iter()
-        .map(|rect| {
-            vk::ClearRect::default()
-                .rect(
-                    vk::Rect2D::default()
-                        .offset(vk::Offset2D {
-                            x: rect.x as i32,
-                            y: rect.y as i32,
-                        })
-                        .extent(vk::Extent2D {
-                            width: rect.width,
-                            height: rect.height,
-                        }),
-                )
-                .base_array_layer(0)
-                .layer_count(1)
-        })
-        .collect::<Vec<_>>();
-        let target_feedback_rectangles = feedback
-            .hotkey
-            .map(|hotkey| {
-                Renderer::feedback_rects(
-                    &target_text,
+            let metric_rectangles = [
+                (&text, metrics_top),
+                (&gpu_sensor_text, gpu_sensor_top),
+                (&cpu_sensor_text, cpu_sensor_top),
+            ]
+            .into_iter()
+            .flat_map(|(line, top)| {
+                Renderer::text_rects_at(line, [self.extent.width, self.extent.height], scale, top)
+            })
+            .map(|rect| {
+                vk::ClearRect::default()
+                    .rect(
+                        vk::Rect2D::default()
+                            .offset(vk::Offset2D {
+                                x: rect.x as i32,
+                                y: rect.y as i32,
+                            })
+                            .extent(vk::Extent2D {
+                                width: rect.width,
+                                height: rect.height,
+                            }),
+                    )
+                    .base_array_layer(0)
+                    .layer_count(1)
+            })
+            .collect::<Vec<_>>();
+            let fps_rectangles = Renderer::fps_value_rects(
+                &text,
+                metrics,
+                [self.extent.width, self.extent.height],
+                scale,
+                metrics_top,
+            )
+            .into_iter()
+            .map(|rect| {
+                vk::ClearRect::default()
+                    .rect(
+                        vk::Rect2D::default()
+                            .offset(vk::Offset2D {
+                                x: rect.x as i32,
+                                y: rect.y as i32,
+                            })
+                            .extent(vk::Extent2D {
+                                width: rect.width,
+                                height: rect.height,
+                            }),
+                    )
+                    .base_array_layer(0)
+                    .layer_count(1)
+            })
+            .collect::<Vec<_>>();
+            let target_rectangles = Renderer::text_rects_at(
+                &target_text,
+                [self.extent.width, self.extent.height],
+                target_scale,
+                8,
+            )
+            .into_iter()
+            .map(|rect| {
+                vk::ClearRect::default()
+                    .rect(
+                        vk::Rect2D::default()
+                            .offset(vk::Offset2D {
+                                x: rect.x as i32,
+                                y: rect.y as i32,
+                            })
+                            .extent(vk::Extent2D {
+                                width: rect.width,
+                                height: rect.height,
+                            }),
+                    )
+                    .base_array_layer(0)
+                    .layer_count(1)
+            })
+            .collect::<Vec<_>>();
+            let status_rectangles = Renderer::text_rects_at(
+                &status_text,
+                [self.extent.width, self.extent.height],
+                target_scale,
+                status_top,
+            )
+            .into_iter()
+            .map(|rect| {
+                vk::ClearRect::default()
+                    .rect(
+                        vk::Rect2D::default()
+                            .offset(vk::Offset2D {
+                                x: rect.x as i32,
+                                y: rect.y as i32,
+                            })
+                            .extent(vk::Extent2D {
+                                width: rect.width,
+                                height: rect.height,
+                            }),
+                    )
+                    .base_array_layer(0)
+                    .layer_count(1)
+            })
+            .collect::<Vec<_>>();
+            let target_feedback_rectangles = feedback
+                .hotkey
+                .map(|hotkey| {
+                    Renderer::feedback_rects(
+                        &target_text,
+                        [self.extent.width, self.extent.height],
+                        target_scale,
+                        8,
+                        &format!("[{}]", hotkey.label()),
+                    )
+                })
+                .unwrap_or_default()
+                .into_iter()
+                .map(|rect| {
+                    vk::ClearRect::default()
+                        .rect(
+                            vk::Rect2D::default()
+                                .offset(vk::Offset2D {
+                                    x: rect.x as i32,
+                                    y: rect.y as i32,
+                                })
+                                .extent(vk::Extent2D {
+                                    width: rect.width,
+                                    height: rect.height,
+                                }),
+                        )
+                        .base_array_layer(0)
+                        .layer_count(1)
+                })
+                .collect::<Vec<_>>();
+            let mut status_feedback_rectangles = Vec::new();
+            if feedback.cap_changed {
+                status_feedback_rectangles.extend(Renderer::feedback_rects(
+                    &status_text,
                     [self.extent.width, self.extent.height],
                     target_scale,
-                    8,
-                    &format!("[{}]", hotkey.label()),
-                )
-            })
-            .unwrap_or_default()
-            .into_iter()
-            .map(|rect| {
-                vk::ClearRect::default()
-                    .rect(
-                        vk::Rect2D::default()
-                            .offset(vk::Offset2D {
-                                x: rect.x as i32,
-                                y: rect.y as i32,
-                            })
-                            .extent(vk::Extent2D {
-                                width: rect.width,
-                                height: rect.height,
-                            }),
-                    )
-                    .base_array_layer(0)
-                    .layer_count(1)
-            })
-            .collect::<Vec<_>>();
-        let mut status_feedback_rectangles = Vec::new();
-        if feedback.cap_changed {
-            status_feedback_rectangles.extend(Renderer::feedback_rects(
-                &status_text,
-                [self.extent.width, self.extent.height],
-                target_scale,
-                status_top,
-                &format!(
-                    "CAP: {:>6} FPS",
-                    target_fps
-                        .map(format_fps)
-                        .unwrap_or_else(|| "OFF".to_owned())
-                ),
-            ));
-        }
-        if feedback.hysteresis_changed {
-            status_feedback_rectangles.extend(Renderer::feedback_rects(
-                &status_text,
-                [self.extent.width, self.extent.height],
-                target_scale,
-                status_top,
-                &format!("HYS: {:>5.1} %", hysteresis_percent.unwrap_or_default()),
-            ));
-        }
-        let status_feedback_rectangles = status_feedback_rectangles
-            .into_iter()
-            .map(|rect| {
-                vk::ClearRect::default()
-                    .rect(
-                        vk::Rect2D::default()
-                            .offset(vk::Offset2D {
-                                x: rect.x as i32,
-                                y: rect.y as i32,
-                            })
-                            .extent(vk::Extent2D {
-                                width: rect.width,
-                                height: rect.height,
-                            }),
-                    )
-                    .base_array_layer(0)
-                    .layer_count(1)
-            })
-            .collect::<Vec<_>>();
-        let foreground = [vk::ClearAttachment::default()
-            .aspect_mask(vk::ImageAspectFlags::COLOR)
-            .color_attachment(0)
-            .clear_value(vk::ClearValue {
-                color: vk::ClearColorValue {
-                    float32: [0.92, 0.96, 0.92, 1.0],
-                },
-            })];
-        unsafe {
-            if !metric_rectangles.is_empty() {
-                device.cmd_clear_attachments(command_buffer, &foreground, &metric_rectangles);
+                    status_top,
+                    &format!(
+                        "CAP: {:>6} FPS",
+                        target_fps
+                            .map(format_fps)
+                            .unwrap_or_else(|| "OFF".to_owned())
+                    ),
+                ));
             }
-            if !fps_rectangles.is_empty() {
-                let [red, green, blue] = self.fps_color.map(|channel| f32::from(channel) / 255.0);
-                let fps_foreground = [vk::ClearAttachment::default()
+            if feedback.hysteresis_changed {
+                status_feedback_rectangles.extend(Renderer::feedback_rects(
+                    &status_text,
+                    [self.extent.width, self.extent.height],
+                    target_scale,
+                    status_top,
+                    &format!("HYS: {:>5.1} %", hysteresis_percent.unwrap_or_default()),
+                ));
+            }
+            let status_feedback_rectangles = status_feedback_rectangles
+                .into_iter()
+                .map(|rect| {
+                    vk::ClearRect::default()
+                        .rect(
+                            vk::Rect2D::default()
+                                .offset(vk::Offset2D {
+                                    x: rect.x as i32,
+                                    y: rect.y as i32,
+                                })
+                                .extent(vk::Extent2D {
+                                    width: rect.width,
+                                    height: rect.height,
+                                }),
+                        )
+                        .base_array_layer(0)
+                        .layer_count(1)
+                })
+                .collect::<Vec<_>>();
+            let foreground = [vk::ClearAttachment::default()
+                .aspect_mask(vk::ImageAspectFlags::COLOR)
+                .color_attachment(0)
+                .clear_value(vk::ClearValue {
+                    color: vk::ClearColorValue {
+                        float32: [0.92, 0.96, 0.92, 1.0],
+                    },
+                })];
+            unsafe {
+                if !metric_rectangles.is_empty() {
+                    device.cmd_clear_attachments(command_buffer, &foreground, &metric_rectangles);
+                }
+                if !fps_rectangles.is_empty() {
+                    let [red, green, blue] =
+                        self.fps_color.map(|channel| f32::from(channel) / 255.0);
+                    let fps_foreground = [vk::ClearAttachment::default()
+                        .aspect_mask(vk::ImageAspectFlags::COLOR)
+                        .color_attachment(0)
+                        .clear_value(vk::ClearValue {
+                            color: vk::ClearColorValue {
+                                float32: [red, green, blue, 1.0],
+                            },
+                        })];
+                    device.cmd_clear_attachments(command_buffer, &fps_foreground, &fps_rectangles);
+                }
+                let status_foreground = [vk::ClearAttachment::default()
                     .aspect_mask(vk::ImageAspectFlags::COLOR)
                     .color_attachment(0)
                     .clear_value(vk::ClearValue {
                         color: vk::ClearColorValue {
-                            float32: [red, green, blue, 1.0],
+                            float32: [0.35, 0.85, 1.0, 1.0],
                         },
                     })];
-                device.cmd_clear_attachments(command_buffer, &fps_foreground, &fps_rectangles);
+                let target_foreground = [vk::ClearAttachment::default()
+                    .aspect_mask(vk::ImageAspectFlags::COLOR)
+                    .color_attachment(0)
+                    .clear_value(vk::ClearValue {
+                        color: vk::ClearColorValue {
+                            float32: [0.35, 0.85, 1.0, 1.0],
+                        },
+                    })];
+                if !target_rectangles.is_empty() {
+                    device.cmd_clear_attachments(
+                        command_buffer,
+                        &target_foreground,
+                        &target_rectangles,
+                    );
+                }
+                if !status_rectangles.is_empty() {
+                    device.cmd_clear_attachments(
+                        command_buffer,
+                        &status_foreground,
+                        &status_rectangles,
+                    );
+                }
+                let feedback_foreground = [vk::ClearAttachment::default()
+                    .aspect_mask(vk::ImageAspectFlags::COLOR)
+                    .color_attachment(0)
+                    .clear_value(vk::ClearValue {
+                        color: vk::ClearColorValue {
+                            float32: [1.0, 0.72, 0.20, 1.0],
+                        },
+                    })];
+                if !target_feedback_rectangles.is_empty() {
+                    device.cmd_clear_attachments(
+                        command_buffer,
+                        &feedback_foreground,
+                        &target_feedback_rectangles,
+                    );
+                }
+                if !status_feedback_rectangles.is_empty() {
+                    device.cmd_clear_attachments(
+                        command_buffer,
+                        &feedback_foreground,
+                        &status_feedback_rectangles,
+                    );
+                }
             }
-            let status_foreground = [vk::ClearAttachment::default()
-                .aspect_mask(vk::ImageAspectFlags::COLOR)
-                .color_attachment(0)
-                .clear_value(vk::ClearValue {
-                    color: vk::ClearColorValue {
-                        float32: [0.35, 0.85, 1.0, 1.0],
-                    },
-                })];
-            let target_foreground = [vk::ClearAttachment::default()
-                .aspect_mask(vk::ImageAspectFlags::COLOR)
-                .color_attachment(0)
-                .clear_value(vk::ClearValue {
-                    color: vk::ClearColorValue {
-                        float32: [0.35, 0.85, 1.0, 1.0],
-                    },
-                })];
-            if !target_rectangles.is_empty() {
-                device.cmd_clear_attachments(
-                    command_buffer,
-                    &target_foreground,
-                    &target_rectangles,
-                );
-            }
-            if !status_rectangles.is_empty() {
-                device.cmd_clear_attachments(
-                    command_buffer,
-                    &status_foreground,
-                    &status_rectangles,
-                );
-            }
-            let feedback_foreground = [vk::ClearAttachment::default()
-                .aspect_mask(vk::ImageAspectFlags::COLOR)
-                .color_attachment(0)
-                .clear_value(vk::ClearValue {
-                    color: vk::ClearColorValue {
-                        float32: [1.0, 0.72, 0.20, 1.0],
-                    },
-                })];
-            if !target_feedback_rectangles.is_empty() {
-                device.cmd_clear_attachments(
-                    command_buffer,
-                    &feedback_foreground,
-                    &target_feedback_rectangles,
-                );
-            }
-            if !status_feedback_rectangles.is_empty() {
-                device.cmd_clear_attachments(
-                    command_buffer,
-                    &feedback_foreground,
-                    &status_feedback_rectangles,
-                );
-            }
-            device.cmd_end_render_pass(command_buffer);
         }
+        unsafe { device.cmd_end_render_pass(command_buffer) };
 
         let to_present = [vk::ImageMemoryBarrier::default()
             .src_access_mask(vk::AccessFlags::COLOR_ATTACHMENT_WRITE)

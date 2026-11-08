@@ -97,6 +97,7 @@ struct DeviceState {
     overlay_refresh_rate: u64,
     scale_2x_min_width_px: u32,
     overlay_background_opacity: f32,
+    overlay_renderer: crate::layer::settings::OverlayRenderer,
     overlay_fps_color: [u8; 3],
     queue_families: HashMap<usize, u32>,
     frame_cap: Arc<FrameCapController>,
@@ -736,7 +737,7 @@ pub unsafe extern "system" fn vkCreateDevice(
             .collect::<Vec<_>>()
             .join(",");
         diagnostics::info(format!(
-            "configuration: target_fps={} input_enabled={} hotkeys=auto:{:?},down:{:?},up:{:?},toggle:{:?} overlay_startup={} auto_algorithms=[{}] gpu_increase_limit={} gpu_decrease_limit={} frame_jitter_limit_ms={} manual_step_fps={} manual_bounds={}..{} gpu_poll_rate_ms={} overlay_refresh_rate={} gpu_expiry_ms={} gpu_smoothing_window_ms={} background_opacity={} fps_color={:?} window_size={}",
+            "configuration: target_fps={} input_enabled={} hotkeys=auto:{:?},down:{:?},up:{:?},toggle:{:?} overlay_startup={} overlay_renderer={:?} auto_algorithms=[{}] gpu_increase_limit={} gpu_decrease_limit={} frame_jitter_limit_ms={} manual_step_fps={} manual_bounds={}..{} gpu_poll_rate_ms={} overlay_refresh_rate={} gpu_expiry_ms={} gpu_smoothing_window_ms={} background_opacity={} fps_color={:?} window_size={}",
             config.target_fps.map_or_else(|| "OFF".to_owned(), |fps| fps.to_string()),
             config.input_enabled,
             config.hotkey_auto,
@@ -744,6 +745,7 @@ pub unsafe extern "system" fn vkCreateDevice(
             config.hotkey_up,
             config.hotkey_toggle,
             config.startup,
+            config.overlay_renderer,
             auto_algorithm_summary,
             config.gpu_increase_limit,
             config.gpu_decrease_limit,
@@ -831,6 +833,7 @@ pub unsafe extern "system" fn vkCreateDevice(
                 overlay_refresh_rate: config.refresh_rate,
                 scale_2x_min_width_px: config.scale_2x_min_width_px,
                 overlay_background_opacity: config.overlay_background_opacity,
+                overlay_renderer: config.overlay_renderer,
                 overlay_fps_color: config.overlay_fps_color,
                 auto_regulator: AutoRegulator::new(
                     config.auto_algorithms.clone(),
@@ -888,6 +891,7 @@ pub unsafe extern "system" fn vkCreateSwapchainKHR(
         overlay_refresh_rate,
         scale_2x_min_width_px,
         overlay_background_opacity,
+        overlay_renderer,
         overlay_fps_color,
     ) = {
         let state = state.lock();
@@ -899,6 +903,7 @@ pub unsafe extern "system" fn vkCreateSwapchainKHR(
             state.overlay_refresh_rate,
             state.scale_2x_min_width_px,
             state.overlay_background_opacity,
+            state.overlay_renderer,
             state.overlay_fps_color,
         )
     };
@@ -978,6 +983,7 @@ pub unsafe extern "system" fn vkCreateSwapchainKHR(
         minimum_metrics_collection_interval,
         overlay_refresh_rate,
         overlay_background_opacity,
+        overlay_renderer,
         overlay_fps_color,
         scale_2x_min_width_px,
     ) {

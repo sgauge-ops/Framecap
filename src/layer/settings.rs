@@ -46,6 +46,7 @@ impl Default for KeyBindingsSettings {
 
 #[derive(Clone, Debug)]
 pub struct OverlaySettings {
+    pub renderer: OverlayRenderer,
     pub refresh_rate: u64,
     pub gpu_smoothing_window_ms: u64,
     pub scale_2x_min_width_px: u32,
@@ -54,10 +55,19 @@ pub struct OverlaySettings {
     pub startup: u8,
 }
 
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum OverlayRenderer {
+    #[default]
+    Classic,
+    Dashboard,
+}
+
 impl Default for OverlaySettings {
     /// Returns the built-in overlay refresh, smoothing, and display defaults.
     fn default() -> Self {
         Self {
+            renderer: OverlayRenderer::default(),
             refresh_rate: 10,
             gpu_smoothing_window_ms: 1000,
             scale_2x_min_width_px: 3440,
@@ -299,6 +309,7 @@ struct RawKeyBindingsSettings {
 #[derive(Deserialize, Default)]
 #[serde(default, deny_unknown_fields)]
 struct RawOverlaySettings {
+    renderer: Option<OverlayRenderer>,
     refresh_rate: Option<u64>,
     gpu_smoothing_window_ms: Option<u64>,
     scale_2x_min_width_px: Option<u32>,
@@ -455,6 +466,7 @@ impl Settings {
                     .unwrap_or(defaults.key_bindings.hotkey_toggle),
             },
             overlay: OverlaySettings {
+                renderer: overlay.renderer.unwrap_or_default(),
                 refresh_rate: overlay
                     .refresh_rate
                     .unwrap_or(defaults.overlay.refresh_rate),
@@ -678,6 +690,23 @@ fn diagnostics_append_log(append_log: Option<u8>) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn overlay_renderer_is_opt_in_and_rejects_unknown_values() {
+        assert_eq!(
+            Settings::default().overlay.renderer,
+            OverlayRenderer::Classic
+        );
+        for (value, expected) in [
+            ("classic", OverlayRenderer::Classic),
+            ("dashboard", OverlayRenderer::Dashboard),
+        ] {
+            let settings: RawSettings =
+                toml::from_str(&format!("[overlay]\nrenderer = \"{value}\"")).unwrap();
+            assert_eq!(settings.overlay.renderer, Some(expected));
+        }
+        assert!(toml::from_str::<RawSettings>("[overlay]\nrenderer = \"other\"").is_err());
+    }
 
     #[test]
     fn overlay_fps_color_defaults_to_yellow_and_accepts_rgb_bytes() {

@@ -1,6 +1,23 @@
 # Overlay specification
 
-The overlay presents:
+`[overlay].renderer` selects `dashboard` for a graphical dashboard or `classic`
+for the original text layout. The built-in default is `classic`; the supplied
+configuration selects `dashboard`. Both use the same data and controls.
+The dashboard displays FPS, 10% low and jitter prominently, followed by mode,
+cap, hysteresis, target, hardware readings and key hints. It uses the bundled
+Fira Sans font (see `src/layer/fonts/OFL.txt`), with antialiased text and
+rounded, shaded panels, keycaps and mode badge. The dashboard has a gray
+outline; its background opacity is configurable independently of the outline
+and text. Very long values are reduced in size or ellipsized within their
+cells. At small swapchain sizes, the dashboard is clipped to the available
+area. It is rendered at 2× when the swapchain width reaches
+`[overlay].scale_2x_min_width_px` and the whole dashboard fits at that scale.
+In the full dashboard, the FPS label follows the displayed value and moves as
+its width changes.
+An unknown renderer name rejects the configuration file. Changing the renderer
+requires an application restart.
+
+The classic overlay presents:
 
 ```text
 MANUAL:  [F9] CYCLE MODE  | [F10]  -5 FPS    | [F11]  +5 FPS    | [F12] CYCLE OSD
@@ -12,7 +29,7 @@ AUTO:    [F9] CYCLE MODE  | [F10]  -1 %      | [F11]  +1 %      | [F12] CYCLE OS
 ```
 
 F12 cycles full overlay → FPS only → off → full overlay. FPS-only mode
-shows just the FPS value (or `COLLECT FPS` while collecting) with its own
+shows just the FPS measurement (or `COLLECT` while collecting) with its own
 background. `[overlay].startup` selects the initial mode: `0` off,
 `1` FPS only, `2` full overlay (built-in default). These display modes do not
 disable frame limiting or automatic regulation.
@@ -36,8 +53,17 @@ second. These highlights are independent.
 
 `JIT` remains a numeric frametime-variation metric, independent of any graph.
 `[overlay].background_opacity` controls the background from 0.0 (transparent)
-to 1.0 (opaque); the built-in default is 0.25. The overlay is redrawn on every
-presentation. Displayed metrics refresh every `[overlay].refresh_rate`
+to 1.0 (opaque); the built-in default is 0.25. For a more opaque dashboard
+similar to the mockup, try `background_opacity = 0.8`. The overlay is redrawn
+on every presentation. Displayed metrics refresh every `[overlay].refresh_rate`
 presentations, built-in default 10. Sensor readings are averaged independently
 over `[overlay].gpu_smoothing_window_ms`; an unavailable reading clears that
 sensor's history only.
+
+Dashboard shaders are checked in as both GLSL and SPIR-V. After changing a
+shader, regenerate its binary with `glslangValidator -V`:
+
+```sh
+glslangValidator -V src/layer/shaders/dashboard.vert -o src/layer/shaders/dashboard.vert.spv
+glslangValidator -V src/layer/shaders/dashboard.frag -o src/layer/shaders/dashboard.frag.spv
+```
