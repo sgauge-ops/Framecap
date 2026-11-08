@@ -68,7 +68,7 @@ measurement_expiry_ms = 1000      # Maximum age of the VRM temperature sample; b
 
 [auto-mode.algorithms.fan_rpm]
 metric = "fan_rpm"                # Supervised metric; built-in default: "fan_rpm".
-target = 1000.0                   # Fan speed target in RPM; built-in default: 2000 RPM; must be positive.
+target = 2000.0                   # Fan speed target in RPM; built-in default: 2000 RPM; must be positive.
 hysteresis_percent = 5.0          # Fan speed dead band; built-in default: 5%; valid range: 0-100%.
 auto_increase_interval_ms = 5000  # Minimum interval between effective increases; built-in default: 10000 ms; must be positive.
 auto_decrease_interval_ms = 5000  # Minimum interval between effective decreases; built-in default: 5000 ms; must be positive.

@@ -1532,7 +1532,7 @@ mod tests {
     #[test]
     /// Checks the configured threshold and ensures doubled text remains within the swapchain.
     fn overlay_text_scale_obeys_threshold_and_fit() {
-        assert_eq!(overlay_text_scale(3839, 3440, 100), 1);
+        assert_eq!(overlay_text_scale(3439, 3440, 100), 1);
         assert_eq!(overlay_text_scale(3440, 3440, 100), 2);
         assert_eq!(overlay_text_scale(3440, 3440, 320), 1);
     }
