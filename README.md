@@ -27,7 +27,7 @@ Framecap's behavior is largely configurable in `framecap.toml`
 ```sh
 git clone https://github.com/sgauge-ops/Framecap.git "$HOME/bc250-framecap" ;
 cd "$HOME/bc250-framecap" ;
-cargo build --locked 
+cargo build --locked --release
 ```
 
 ## Configure
@@ -67,8 +67,9 @@ that game, not globally. Remove the launch options to disable it.
 
 ```sh
 cd "$HOME/bc250-framecap" ;
+mv framecap.toml framecap.bak.toml
 git pull ;
-cargo build --locked 
+cargo build --locked --release
 ```
 
 # Going further
