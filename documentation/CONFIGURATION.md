@@ -28,7 +28,7 @@ configuration.
 | `[framecap]` | Initial cap, metrics window, and GPU polling interval. `target_fps = 0` starts in OFF. |
 | `[key-bindings]` | Enable and assign distinct F9-F12 shortcuts. |
 | `[sensors]` | Optional hwmon path overrides for temperatures, power, and fan speed. |
-| `[overlay]` | Visibility, refresh, smoothing, text scaling, and background. |
+| `[overlay]` | Visibility, refresh, smoothing, text scaling, FPS color, and background. |
 | `[auto-mode]` | Algorithm order and GPU/jitter thresholds. |
 | `[auto-mode.algorithms.<name>]` | Metric, target, hysteresis, intervals, steps, FPS bounds, and measurement expiry. |
 | `[manual-mode]` | Manual FPS step and bounds. |

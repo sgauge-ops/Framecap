@@ -27,7 +27,8 @@ fan_rpm_path = "/sys/class/hwmon/hwmon3/fan2"
 
 [overlay]
 startup = 2                         # Overlay at startup: 0 off, 1 FPS only, 2 full. Built-in default: 2.
-background_opacity = 0.25           # Overlay background opacity. Built-in default: 0.25; 0.0 is fully transparent and 1.0 fully opaque; valid range: 0.0-1.0; invalid values use the default.
+background_opacity = 0.5            # Overlay background opacity. Built-in default: 0.25; 0.0 is fully transparent and 1.0 fully opaque; valid range: 0.0-1.0; invalid values use the default.
+fps_color = [255, 255, 0]           # FPS value color as RGB integers (0-255). Built-in default: yellow [255, 255, 0].
 refresh_rate = 25                   # Redraw the overlay every frame; refresh its displayed metrics every N presents.
 gpu_smoothing_window_ms = 1000      # Rolling time window for FPS, 10% low, jitter, GPU load, and hardware sensor readings. Built-in default: 1000 ms; must be positive; invalid values use the default.
 scale_2x_min_width_px = 3440        # Minimum swapchain width for doubling overlay text. Built-in default: 3440 px; must be positive; invalid values use the default.

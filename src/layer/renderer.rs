@@ -137,15 +137,18 @@ impl Renderer {
         }
     }
 
-    /// Formats the displayed frame-rate and frame-pacing metrics.
-    pub fn fps_text(metrics: &MetricsSnapshot) -> String {
+    fn fps_value(metrics: &MetricsSnapshot) -> String {
         let fps_value = metrics.fps();
-        let fps = if fps_value.is_finite() && fps_value > 0.0 {
+        if fps_value.is_finite() && fps_value > 0.0 {
             format!("{fps_value:.0}")
         } else {
             "COLLECT".to_owned()
-        };
-        format!("| {fps:>5} FPS")
+        }
+    }
+
+    /// Formats the displayed frame-rate and frame-pacing metrics.
+    pub fn fps_text(metrics: &MetricsSnapshot) -> String {
+        format!("| {:>5} FPS", Self::fps_value(metrics))
     }
 
     pub fn text(metrics: &MetricsSnapshot) -> String {
@@ -307,6 +310,16 @@ impl Renderer {
         };
         let left = 8u32.saturating_add((start as u32).saturating_mul(6 * scale));
         Self::text_rects_at_x(highlighted_text, extent, scale, top, left)
+    }
+
+    fn fps_value_rects(
+        text: &str,
+        metrics: &MetricsSnapshot,
+        extent: [u32; 2],
+        scale: u32,
+        top: u32,
+    ) -> Vec<OverlayRect> {
+        Self::feedback_rects(text, extent, scale, top, &Self::fps_value(metrics))
     }
 
     /// Rasterizes text at the default top margin and clips it to the extent.
@@ -511,6 +524,7 @@ struct ImageResources {
 pub struct VulkanSwapchainRenderer {
     extent: vk::Extent2D,
     background_opacity: f32,
+    fps_color: [u8; 3],
     scale_2x_min_width_px: u32,
     overlay_refresh_rate: u64,
     overlay_poll_count: u64,
@@ -762,6 +776,7 @@ impl VulkanSwapchainRenderer {
         minimum_collection_interval: Duration,
         overlay_refresh_rate: u64,
         background_opacity: f32,
+        fps_color: [u8; 3],
         scale_2x_min_width_px: u32,
     ) -> Result<Self, vk::Result> {
         let attachment = vk::AttachmentDescription::default()
@@ -869,6 +884,7 @@ impl VulkanSwapchainRenderer {
         Ok(Self {
             extent,
             background_opacity,
+            fps_color,
             scale_2x_min_width_px,
             overlay_refresh_rate: overlay_refresh_rate.max(1),
             overlay_poll_count: 0,
@@ -1162,6 +1178,31 @@ impl VulkanSwapchainRenderer {
                 .layer_count(1)
         })
         .collect::<Vec<_>>();
+        let fps_rectangles = Renderer::fps_value_rects(
+            &text,
+            metrics,
+            [self.extent.width, self.extent.height],
+            scale,
+            metrics_top,
+        )
+        .into_iter()
+        .map(|rect| {
+            vk::ClearRect::default()
+                .rect(
+                    vk::Rect2D::default()
+                        .offset(vk::Offset2D {
+                            x: rect.x as i32,
+                            y: rect.y as i32,
+                        })
+                        .extent(vk::Extent2D {
+                            width: rect.width,
+                            height: rect.height,
+                        }),
+                )
+                .base_array_layer(0)
+                .layer_count(1)
+        })
+        .collect::<Vec<_>>();
         let target_rectangles = Renderer::text_rects_at(
             &target_text,
             [self.extent.width, self.extent.height],
@@ -1294,6 +1335,18 @@ impl VulkanSwapchainRenderer {
         unsafe {
             if !metric_rectangles.is_empty() {
                 device.cmd_clear_attachments(command_buffer, &foreground, &metric_rectangles);
+            }
+            if !fps_rectangles.is_empty() {
+                let [red, green, blue] = self.fps_color.map(|channel| f32::from(channel) / 255.0);
+                let fps_foreground = [vk::ClearAttachment::default()
+                    .aspect_mask(vk::ImageAspectFlags::COLOR)
+                    .color_attachment(0)
+                    .clear_value(vk::ClearValue {
+                        color: vk::ClearColorValue {
+                            float32: [red, green, blue, 1.0],
+                        },
+                    })];
+                device.cmd_clear_attachments(command_buffer, &fps_foreground, &fps_rectangles);
             }
             let status_foreground = [vk::ClearAttachment::default()
                 .aspect_mask(vk::ImageAspectFlags::COLOR)
@@ -1456,6 +1509,24 @@ mod tests {
             now,
         );
         assert_eq!(Renderer::fps_text(&collecting), "| COLLECT FPS");
+        for (snapshot, value, column) in [(&metrics, "60", 5), (&collecting, "COLLECT", 2)] {
+            for text in [Renderer::fps_text(snapshot), Renderer::text(snapshot)] {
+                for scale in [1, 2] {
+                    let rects = Renderer::fps_value_rects(&text, snapshot, [1200, 100], scale, 25);
+                    assert!(!rects.is_empty());
+                    assert_eq!(
+                        rects,
+                        Renderer::text_rects_at_x(
+                            value,
+                            [1200, 100],
+                            scale,
+                            25,
+                            8 + column * 6 * scale,
+                        )
+                    );
+                }
+            }
+        }
     }
 
     #[test]

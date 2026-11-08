@@ -33,7 +33,7 @@ fn run_vkcube(
     fs::write(
         config_dir.join("framecap.toml"),
         format!(
-            "[framecap]\ntarget_fps = {target_fps}\ninput_enabled = false\n\n[overlay]\nstartup = {overlay_startup}\n\n[diagnostics]\nlog_path = {:?}\n",
+            "[framecap]\ntarget_fps = {target_fps}\ninput_enabled = false\n\n[overlay]\nstartup = {overlay_startup}\nfps_color = [17, 128, 240]\n\n[diagnostics]\nlog_path = {:?}\n",
             log_path.display().to_string()
         ),
     )
@@ -121,6 +121,10 @@ fn vkcube_presents_with_and_without_framecap_layer() {
         assert!(
             diagnostic_log.contains(&format!("overlay_startup={mode}")),
             "mode {mode} was not loaded:\n{diagnostic_log}"
+        );
+        assert!(
+            diagnostic_log.contains("fps_color=[17, 128, 240]"),
+            "custom FPS color was not loaded:\n{diagnostic_log}"
         );
         assert!(
             diagnostic_log.contains("overlay renderer initialized"),

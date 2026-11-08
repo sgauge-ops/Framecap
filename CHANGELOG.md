@@ -8,6 +8,7 @@ originally took place.
 
 | Date | Changes |
 | --- | --- |
+| 2026-11-08 | Made the FPS value yellow by default, with a configurable RGB color in `[overlay].fps_color`. |
 | 2026-11-08 | Added full, FPS-only, and off overlay modes, cycled with F12 and selectable at startup. |
 | 2026-11-08 | Added the active automatic algorithm's target and unit to the overlay status row. |
 | 2026-11-08 | Moved GPU load and frame-jitter thresholds into `[auto-mode.algorithms.gpu_threshold]`, where they are used. |

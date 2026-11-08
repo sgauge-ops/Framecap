@@ -50,6 +50,7 @@ pub struct OverlaySettings {
     pub gpu_smoothing_window_ms: u64,
     pub scale_2x_min_width_px: u32,
     pub background_opacity: f32,
+    pub fps_color: [u8; 3],
     pub startup: u8,
 }
 
@@ -61,6 +62,7 @@ impl Default for OverlaySettings {
             gpu_smoothing_window_ms: 1000,
             scale_2x_min_width_px: 3440,
             background_opacity: 0.25,
+            fps_color: [255, 255, 0],
             startup: 2,
         }
     }
@@ -285,7 +287,23 @@ struct RawOverlaySettings {
     gpu_smoothing_window_ms: Option<u64>,
     scale_2x_min_width_px: Option<u32>,
     background_opacity: Option<f32>,
+    #[serde(deserialize_with = "deserialize_rgb")]
+    fps_color: Option<[u8; 3]>,
     startup: Option<u8>,
+}
+
+fn deserialize_rgb<'de, D>(deserializer: D) -> Result<Option<[u8; 3]>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let channels = Option::<Vec<u8>>::deserialize(deserializer)?;
+    channels
+        .map(|channels| {
+            channels
+                .try_into()
+                .map_err(|_| serde::de::Error::custom("expected exactly three RGB channels"))
+        })
+        .transpose()
 }
 
 #[derive(Deserialize, Default)]
@@ -446,6 +464,7 @@ impl Settings {
                     .background_opacity
                     .or(framecap.background_opacity)
                     .unwrap_or(defaults.overlay.background_opacity),
+                fps_color: overlay.fps_color.unwrap_or(defaults.overlay.fps_color),
                 startup: overlay
                     .startup
                     .or(framecap.startup)
@@ -663,6 +682,27 @@ fn diagnostics_append_log(append_log: Option<u8>) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn overlay_fps_color_defaults_to_yellow_and_accepts_rgb_bytes() {
+        assert_eq!(Settings::default().overlay.fps_color, [255, 255, 0]);
+        let settings: RawSettings = toml::from_str("[overlay]\nfps_color = [0, 128, 255]").unwrap();
+        assert_eq!(settings.overlay.fps_color, Some([0, 128, 255]));
+        for invalid in [
+            "[-1, 0, 0]",
+            "[256, 0, 0]",
+            "[0, 0]",
+            "[0, 0, 0, 0]",
+            "[0.5, 0, 0]",
+            "\"yellow\"",
+        ] {
+            assert!(
+                toml::from_str::<RawSettings>(&format!("[overlay]\nfps_color = {invalid}"))
+                    .is_err(),
+                "accepted invalid color: {invalid}"
+            );
+        }
+    }
 
     #[test]
     /// Checks the built-in and configured 2x overlay width threshold.
