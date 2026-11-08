@@ -2,13 +2,14 @@ use crate::layer::auto::adjust_hysteresis_percent;
 use crate::layer::config::Hotkey;
 use crate::layer::diagnostics;
 use crate::layer::limiter::FrameCapController;
-use crate::layer::renderer::{OverlayFeedbackEvent, OverlayFeedbackState};
+use crate::layer::renderer::{OverlayFeedbackEvent, OverlayFeedbackState, OverlayModeState};
 use libloading::Library;
+use parking_lot::Mutex;
 use std::ffi::{c_char, c_int, c_long, c_uint, c_ulong};
 use std::mem::MaybeUninit;
 use std::ptr;
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock, Weak};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
@@ -210,13 +211,38 @@ impl X11 {
     }
 }
 
-pub struct HotkeyWorker {
+struct HotkeyTarget {
+    controller: Arc<FrameCapController>,
+    overlay_mode: Arc<OverlayModeState>,
+    active_auto_algorithm: Arc<AtomicI32>,
+    auto_hysteresis_percent: Arc<Vec<AtomicU32>>,
+    manual_step_fps: f32,
+    overlay_feedback: Arc<OverlayFeedbackState>,
+    hotkeys: [Hotkey; 4],
+}
+
+struct HotkeyListener {
     stop: Arc<AtomicBool>,
-    worker: Option<JoinHandle<()>>,
+    worker: JoinHandle<()>,
+}
+
+#[derive(Default)]
+struct HotkeyManager {
+    targets: Vec<Weak<HotkeyTarget>>,
+    listener: Option<HotkeyListener>,
+}
+
+fn hotkey_manager() -> &'static Mutex<HotkeyManager> {
+    static MANAGER: OnceLock<Mutex<HotkeyManager>> = OnceLock::new();
+    MANAGER.get_or_init(|| Mutex::new(HotkeyManager::default()))
+}
+
+pub struct HotkeyWorker {
+    target: Option<Arc<HotkeyTarget>>,
 }
 
 impl HotkeyWorker {
-    /// Starts the optional X11 listener thread when hotkeys are enabled.
+    /// Registers a device with the process-wide X11 listener.
     pub fn start(
         enabled: bool,
         auto_key: Hotkey,
@@ -224,7 +250,7 @@ impl HotkeyWorker {
         down_key: Hotkey,
         toggle_key: Hotkey,
         controller: Arc<FrameCapController>,
-        overlay_visible: Arc<AtomicBool>,
+        overlay_mode: Arc<OverlayModeState>,
         active_auto_algorithm: Arc<AtomicI32>,
         auto_hysteresis_percent: Arc<Vec<AtomicU32>>,
         manual_step_fps: f32,
@@ -233,35 +259,69 @@ impl HotkeyWorker {
         if !enabled {
             return None;
         }
-        let stop = Arc::new(AtomicBool::new(false));
-        let worker_stop = Arc::clone(&stop);
-        let worker = thread::spawn(move || {
-            if let Err(error) = run_listener(
-                worker_stop,
-                controller,
-                overlay_visible,
-                active_auto_algorithm,
-                auto_hysteresis_percent,
-                manual_step_fps,
-                overlay_feedback,
-                [auto_key, up_key, down_key, toggle_key],
-            ) {
-                diagnostics::warn(format!(
-                    "Framecap: F9/F10/F11/F12 X11 hotkeys unavailable: {error}"
-                ));
-            }
+
+        let target = Arc::new(HotkeyTarget {
+            controller,
+            overlay_mode,
+            active_auto_algorithm,
+            auto_hysteresis_percent,
+            manual_step_fps,
+            overlay_feedback,
+            hotkeys: [auto_key, up_key, down_key, toggle_key],
         });
+        let mut manager = hotkey_manager().lock();
+        manager.targets.retain(|target| target.strong_count() > 0);
+        manager.targets.push(Arc::downgrade(&target));
+
+        if manager
+            .listener
+            .as_ref()
+            .is_some_and(|listener| listener.worker.is_finished())
+        {
+            let listener = manager.listener.take().expect("listener was checked");
+            let _ = listener.worker.join();
+        }
+
+        if manager.listener.is_none() {
+            let stop = Arc::new(AtomicBool::new(false));
+            let worker_stop = Arc::clone(&stop);
+            let worker = thread::spawn(move || {
+                if let Err(error) = run_listener(worker_stop) {
+                    diagnostics::warn(format!(
+                        "Framecap: F9/F10/F11/F12 X11 hotkeys unavailable: {error}"
+                    ));
+                }
+            });
+            manager.listener = Some(HotkeyListener { stop, worker });
+        }
+
         Some(Self {
-            stop,
-            worker: Some(worker),
+            target: Some(target),
         })
     }
 
-    /// Signals the listener to stop and joins its worker thread.
+    /// Unregisters a device and stops the listener when no devices remain.
     pub fn stop(&mut self) {
-        self.stop.store(true, Ordering::Relaxed);
-        if let Some(worker) = self.worker.take() {
-            if worker.join().is_err() {
+        let Some(target) = self.target.take() else {
+            return;
+        };
+        let listener = {
+            let mut manager = hotkey_manager().lock();
+            manager.targets.retain(|registered| {
+                registered
+                    .upgrade()
+                    .is_some_and(|registered| !Arc::ptr_eq(&registered, &target))
+            });
+            if manager.targets.is_empty() {
+                manager.listener.take()
+            } else {
+                None
+            }
+        };
+
+        if let Some(listener) = listener {
+            listener.stop.store(true, Ordering::Relaxed);
+            if listener.worker.join().is_err() {
                 diagnostics::error(
                     "Framecap: F9/F10/F11/F12 hotkey listener thread terminated unexpectedly",
                 );
@@ -270,17 +330,14 @@ impl HotkeyWorker {
     }
 }
 
-/// Grabs configured global keys and dispatches their control actions.
-fn run_listener(
-    stop: Arc<AtomicBool>,
-    controller: Arc<FrameCapController>,
-    overlay_visible: Arc<AtomicBool>,
-    active_auto_algorithm: Arc<AtomicI32>,
-    auto_hysteresis_percent: Arc<Vec<AtomicU32>>,
-    manual_step_fps: f32,
-    overlay_feedback: Arc<OverlayFeedbackState>,
-    hotkeys: [Hotkey; 4],
-) -> Result<(), String> {
+impl Drop for HotkeyWorker {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
+/// Grabs configured global keys once and dispatches them to every registered device.
+fn run_listener(stop: Arc<AtomicBool>) -> Result<(), String> {
     let x11 = X11::load()?;
     if unsafe { (x11.init_threads)() } == 0 {
         return Err("XInitThreads failed".to_owned());
@@ -291,6 +348,7 @@ fn run_listener(
     }
 
     let root = unsafe { (x11.default_root_window)(display) };
+    let hotkeys = [Hotkey::F9, Hotkey::F10, Hotkey::F11, Hotkey::F12];
     let keycodes = hotkeys.map(|hotkey| x11.keycode(display, hotkey));
     if root == 0 {
         unsafe {
@@ -330,7 +388,7 @@ fn run_listener(
         }
         (x11.flush)(display);
     }
-    diagnostics::info("Framecap: X11 hotkey listener active (F9/F10/F11/F12)");
+    diagnostics::info("Framecap: process-wide X11 hotkey listener active (F9/F10/F11/F12)");
 
     let mut pressed = [false; 4];
     while !stop.load(Ordering::Relaxed) {
@@ -354,81 +412,7 @@ fn run_listener(
 
         if key.type_ == KEY_PRESS && !pressed[index] {
             pressed[index] = true;
-            overlay_feedback.record(OverlayFeedbackEvent::HotkeyPressed(hotkeys[index]));
-            match hotkeys[index] {
-                Hotkey::F9 => match cycle_regulation_mode(
-                    &active_auto_algorithm,
-                    &controller,
-                    auto_hysteresis_percent.len(),
-                ) {
-                    Ok(RegulationMode::Manual) => {
-                        overlay_feedback.record(OverlayFeedbackEvent::CapChanged);
-                        diagnostics::info("[CONTROL] FPS regulation mode MANUAL");
-                    }
-                    Ok(RegulationMode::Automatic(index)) => {
-                        diagnostics::info(format!(
-                            "[CONTROL] FPS regulation mode AUTO ({})",
-                            index + 1
-                        ));
-                    }
-                    Ok(RegulationMode::Off) => {
-                        overlay_feedback.record(OverlayFeedbackEvent::CapChanged);
-                        diagnostics::info("[CONTROL] FPS regulation mode OFF");
-                    }
-                    Err(error) => diagnostics::error(format!(
-                        "[CONTROL] unable to cycle FPS regulation mode: {error}"
-                    )),
-                },
-                Hotkey::F11 => {
-                    let active = active_auto_algorithm.load(Ordering::Relaxed);
-                    if active > 0 {
-                        if let Some((old, new)) = adjust_hysteresis_percent(
-                            &auto_hysteresis_percent,
-                            (active - 1) as usize,
-                            1.0,
-                        ) {
-                            overlay_feedback.record(OverlayFeedbackEvent::HysteresisChanged);
-                            diagnostics::info(format!(
-                                "[CONTROL] AUTO hysteresis raised: {old:.1}% -> {new:.1}%"
-                            ));
-                        }
-                    } else {
-                        if let Some((old, new)) = controller.adjust(manual_step_fps) {
-                            overlay_feedback.record(OverlayFeedbackEvent::CapChanged);
-                            diagnostics::info(format!(
-                                "[CONTROL] FPS Limit raised: {old:.1} -> {new:.1} fps"
-                            ));
-                        }
-                    }
-                }
-                Hotkey::F10 => {
-                    let active = active_auto_algorithm.load(Ordering::Relaxed);
-                    if active > 0 {
-                        if let Some((old, new)) = adjust_hysteresis_percent(
-                            &auto_hysteresis_percent,
-                            (active - 1) as usize,
-                            -1.0,
-                        ) {
-                            overlay_feedback.record(OverlayFeedbackEvent::HysteresisChanged);
-                            diagnostics::info(format!(
-                                "[CONTROL] AUTO hysteresis lowered: {old:.1}% -> {new:.1}%"
-                            ));
-                        }
-                    } else {
-                        if let Some((old, new)) = controller.adjust(-manual_step_fps) {
-                            overlay_feedback.record(OverlayFeedbackEvent::CapChanged);
-                            diagnostics::info(format!(
-                                "[CONTROL] FPS Limit lowered: {old:.1} -> {new:.1} fps"
-                            ));
-                        }
-                    }
-                }
-                Hotkey::F12 => {
-                    let visible = toggle_overlay(&overlay_visible);
-                    let state = if visible { "SHOW" } else { "HIDDEN" };
-                    diagnostics::info(format!("[CONTROL] Overlay {state}"));
-                }
-            }
+            dispatch_hotkey(hotkeys[index]);
         } else if key.type_ == KEY_RELEASE {
             let mut next_event = MaybeUninit::<XEvent>::uninit();
             if unsafe { (x11.pending)(display) } > 0 {
@@ -463,9 +447,100 @@ fn run_listener(
     Ok(())
 }
 
-/// Atomically toggles overlay visibility and returns the resulting state.
-fn toggle_overlay(overlay_visible: &AtomicBool) -> bool {
-    !overlay_visible.fetch_xor(true, Ordering::Relaxed)
+/// Applies the matching configured action to every active Vulkan device.
+fn dispatch_hotkey(hotkey: Hotkey) {
+    let targets = {
+        let mut manager = hotkey_manager().lock();
+        let mut targets = Vec::with_capacity(manager.targets.len());
+        manager.targets.retain(|target| {
+            if let Some(target) = target.upgrade() {
+                targets.push(target);
+                true
+            } else {
+                false
+            }
+        });
+        targets
+    };
+
+    for target in targets {
+        if let Some(action) = configured_action(&target.hotkeys, hotkey) {
+            dispatch_action(&target, action, hotkey);
+        }
+    }
+}
+
+fn configured_action(hotkeys: &[Hotkey; 4], hotkey: Hotkey) -> Option<usize> {
+    hotkeys.iter().position(|configured| *configured == hotkey)
+}
+
+fn dispatch_action(target: &HotkeyTarget, action: usize, hotkey: Hotkey) {
+    target
+        .overlay_feedback
+        .record(OverlayFeedbackEvent::HotkeyPressed(hotkey));
+    match action {
+        0 => match cycle_regulation_mode(
+            &target.active_auto_algorithm,
+            &target.controller,
+            target.auto_hysteresis_percent.len(),
+        ) {
+            Ok(RegulationMode::Manual) => {
+                target
+                    .overlay_feedback
+                    .record(OverlayFeedbackEvent::CapChanged);
+                diagnostics::info("[CONTROL] FPS regulation mode MANUAL");
+            }
+            Ok(RegulationMode::Automatic(index)) => {
+                diagnostics::info(format!(
+                    "[CONTROL] FPS regulation mode AUTO ({})",
+                    index + 1
+                ));
+            }
+            Ok(RegulationMode::Off) => {
+                target
+                    .overlay_feedback
+                    .record(OverlayFeedbackEvent::CapChanged);
+                diagnostics::info("[CONTROL] FPS regulation mode OFF");
+            }
+            Err(error) => diagnostics::error(format!(
+                "[CONTROL] unable to cycle FPS regulation mode: {error}"
+            )),
+        },
+        1 => adjust_target(target, 1.0),
+        2 => adjust_target(target, -1.0),
+        3 => {
+            let mode = target.overlay_mode.cycle();
+            diagnostics::info(format!("[CONTROL] Overlay {mode:?}"));
+        }
+        _ => unreachable!("a configured hotkey has one of four actions"),
+    }
+}
+
+fn adjust_target(target: &HotkeyTarget, direction: f32) {
+    let active = target.active_auto_algorithm.load(Ordering::Relaxed);
+    if active > 0 {
+        if let Some((old, new)) = adjust_hysteresis_percent(
+            &target.auto_hysteresis_percent,
+            (active - 1) as usize,
+            direction,
+        ) {
+            target
+                .overlay_feedback
+                .record(OverlayFeedbackEvent::HysteresisChanged);
+            let verb = if direction > 0.0 { "raised" } else { "lowered" };
+            diagnostics::info(format!(
+                "[CONTROL] AUTO hysteresis {verb}: {old:.1}% -> {new:.1}%"
+            ));
+        }
+    } else if let Some((old, new)) = target.controller.adjust(direction * target.manual_step_fps) {
+        target
+            .overlay_feedback
+            .record(OverlayFeedbackEvent::CapChanged);
+        let verb = if direction > 0.0 { "raised" } else { "lowered" };
+        diagnostics::info(format!(
+            "[CONTROL] FPS Limit {verb}: {old:.1} -> {new:.1} fps"
+        ));
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -519,11 +594,26 @@ mod tests {
     }
 
     #[test]
-    /// Checks that the overlay toggle alternates its visibility.
-    fn f12_toggle_alternates_overlay_visibility() {
-        let visible = AtomicBool::new(true);
-        assert!(!toggle_overlay(&visible));
-        assert!(toggle_overlay(&visible));
+    fn f12_cycles_overlay_modes() {
+        use crate::layer::renderer::OverlayMode;
+        let mode = OverlayModeState::new(2);
+        assert_eq!(mode.mode(), OverlayMode::Full);
+        assert_eq!(mode.cycle(), OverlayMode::Fps);
+        assert_eq!(mode.cycle(), OverlayMode::Off);
+        assert_eq!(mode.cycle(), OverlayMode::Full);
+        assert_eq!(OverlayModeState::new(0).cycle(), OverlayMode::Full);
+        assert_eq!(OverlayModeState::new(1).cycle(), OverlayMode::Off);
+    }
+
+    #[test]
+    /// Maps each physical function key to the configured action for that device.
+    fn hotkey_dispatch_uses_each_devices_key_bindings() {
+        let hotkeys = [Hotkey::F10, Hotkey::F12, Hotkey::F9, Hotkey::F11];
+
+        assert_eq!(configured_action(&hotkeys, Hotkey::F10), Some(0));
+        assert_eq!(configured_action(&hotkeys, Hotkey::F12), Some(1));
+        assert_eq!(configured_action(&hotkeys, Hotkey::F9), Some(2));
+        assert_eq!(configured_action(&hotkeys, Hotkey::F11), Some(3));
     }
 
     #[test]

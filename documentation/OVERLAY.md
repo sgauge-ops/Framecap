@@ -3,24 +3,30 @@
 The overlay presents:
 
 ```text
-MANUAL: | [F9] CYCLE MODE | [F10] -5 FPS | [F11] +5 FPS | [F12] OSD |
-AUTO:   | [F9] CYCLE MODE | [F10] -1 %   | [F11] +1 %   | [F12] OSD |
-        | MODE: MANUAL/AUTO (JIT/VRM/FAN)/OFF | CAP: xx FPS | HYS: xx % |
+MANUAL: | [F9] CYCLE MODE | [F10] -5 FPS | [F11] +5 FPS | [F12] CYCLE OSD |
+AUTO:   | [F9] CYCLE MODE | [F10] -1 %   | [F11] +1 %   | [F12] CYCLE OSD |
+        | MODE: MANUAL/AUTO (JIT/VRM/FAN)/OFF | CAP: xx FPS | HYS: xx % | TARGET: xx UNIT |
         | xx FPS | 10% LOW: xx FPS | JIT: xx MS |
         | GPU: xx °C | VRM: xx °C | Load: xx % | PPT: xx W |
         | CPU: xx °C | VRM: xx °C | Load: xx % | RPM: xx RPM |
-        JITTER 0-50ms  (only when the jitter graph is enabled)
 ```
 
-The jitter graph is disabled by default (`[overlay].jitter_graph_startup = 0`).
-When disabled, neither the graph nor its history is rendered or calculated.
-Its vertical scale is fixed at 0–50 ms, with higher values clipped.
+F12 cycles full overlay → FPS only → off → full overlay. FPS-only mode
+shows just the FPS value (or `COLLECT FPS` while collecting) with its own
+background. `[overlay].startup` selects the initial mode: `0` off,
+`1` FPS only, `2` full overlay (built-in default). These display modes do not
+disable frame limiting or automatic regulation.
 
 Columns are aligned across lines: F10/CAP/10% LOW/VRM, F11/HYS/JIT/Load,
-and F12/PPT/RPM. A cap change highlights `CAP`, a change in active
+and F12/TARGET/PPT/RPM. In AUTO, TARGET shows the selected algorithm's
+reference: the displayed 10% low in FPS for JIT, the configured temperature
+in °C for VRM, or the configured speed in RPM for FAN. JIT shows
+`TARGET: COLLECT FPS` while its reference is unavailable; MANUAL and OFF show
+`TARGET: --`. A cap change highlights `CAP`, a change in active
 hysteresis highlights `HYS`, and a key press highlights that key for one
 second. These highlights are independent.
 
+`JIT` remains a numeric frametime-variation metric, independent of any graph.
 `[overlay].background_opacity` controls the background from 0.0 (transparent)
 to 1.0 (opaque); the built-in default is 0.25. The overlay is redrawn on every
 presentation. Displayed metrics refresh every `[overlay].refresh_rate`

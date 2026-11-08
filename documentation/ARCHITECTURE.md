@@ -30,8 +30,8 @@ on target changes and avoids catch-up bursts after missed deadlines. The cap
 can be adjusted manually or by one of the independently timed
 [automatic algorithms](AUTO-MODE.md); OFF disables the limiter while remembering
 the last target. VSync or an application cap can result in a lower actual FPS.
-The X11 input worker shares state with the regulator and renderer; it is not
-part of the frame presentation loop.
+The process-wide X11 input worker shares hotkey events with each registered
+device's regulator and renderer; it is not part of the frame presentation loop.
 
 ## Source layout
 
@@ -42,7 +42,7 @@ part of the frame presentation loop.
 | [`src/layer/auto.rs`](../src/layer/auto.rs) | Automatic regulation and hysteresis adjustment. |
 | [`src/layer/renderer.rs`](../src/layer/renderer.rs) | Overlay drawing and presentation metrics. |
 | [`src/layer/telemetry.rs`](../src/layer/telemetry.rs) | GPU and hardware sensor collection and smoothing. |
-| [`src/layer/input_x11.rs`](../src/layer/input_x11.rs) | X11/XWayland global shortcuts. |
+| [`src/layer/input_x11.rs`](../src/layer/input_x11.rs) | One process-wide X11/XWayland listener dispatches global shortcuts to registered Vulkan devices. |
 | [`src/layer/config.rs`](../src/layer/config.rs), [`settings.rs`](../src/layer/settings.rs) | Configuration parsing and validation. |
 | [`src/layer/diagnostics.rs`](../src/layer/diagnostics.rs) | Diagnostics logging. |
 | [`src/layer/shaders/`](../src/layer/shaders/) | Shader sources and checked-in SPIR-V binaries. |

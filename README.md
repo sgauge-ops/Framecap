@@ -16,7 +16,7 @@ Framecap offers the following modes (cycled-through via [F9] by default):
 
 The automatic algorithms are still experimental and being fine-tuned. Your feedback is welcome.
 
-Framecap's overlay can be disabled via [F12]. Background logic (mode dependent) is still active when the overlay is hidden.
+F12 cycles Framecap's overlay through full, FPS only, and off. Background logic (mode dependent) remains active when the overlay is hidden.
 
 Framecap's behavior is largely configurable in `framecap.toml`
 

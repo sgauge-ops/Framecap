@@ -1,14 +1,57 @@
-use crate::layer::config::Hotkey;
+use crate::layer::config::{AutoMetric, AutoTarget, Hotkey};
 use crate::layer::lib::{GpuMeasurement, HardwareMetrics, MetricsSnapshot, TelemetryStatus};
 use ash::vk;
 use std::collections::VecDeque;
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::time::{Duration, Instant};
 
-pub const JITTER_GRAPH_MAX_MS: f32 = 50.0;
 const FEEDBACK_VISIBLE_FOR: Duration = Duration::from_secs(1);
 const FIRST_COLUMN: usize = 18;
 const SECOND_COLUMN: usize = 42;
 const THIRD_COLUMN: usize = 64;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
+pub enum OverlayMode {
+    Off = 0,
+    Fps = 1,
+    Full = 2,
+}
+
+pub struct OverlayModeState(AtomicU8);
+
+impl OverlayModeState {
+    pub fn new(startup: u8) -> Self {
+        Self(AtomicU8::new(startup))
+    }
+
+    pub fn mode(&self) -> OverlayMode {
+        match self.0.load(Ordering::Relaxed) {
+            0 => OverlayMode::Off,
+            1 => OverlayMode::Fps,
+            2 => OverlayMode::Full,
+            value => panic!("invalid overlay mode: {value}"),
+        }
+    }
+
+    pub fn cycle(&self) -> OverlayMode {
+        let previous = self
+            .0
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |mode| match mode {
+                2 => Some(1),
+                1 => Some(0),
+                0 => Some(2),
+                _ => None,
+            })
+            .expect("overlay mode must be valid");
+        match previous {
+            2 => OverlayMode::Fps,
+            1 => OverlayMode::Off,
+            0 => OverlayMode::Full,
+            _ => unreachable!(),
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum OverlayFeedbackEvent {
@@ -95,15 +138,19 @@ impl Renderer {
     }
 
     /// Formats the displayed frame-rate and frame-pacing metrics.
-    pub fn text(metrics: &MetricsSnapshot) -> String {
+    pub fn fps_text(metrics: &MetricsSnapshot) -> String {
         let fps_value = metrics.fps();
-        let jitter_ms = metrics.jitter_ms();
-        let low_10_fps = metrics.low_10_fps();
         let fps = if fps_value.is_finite() && fps_value > 0.0 {
             format!("{fps_value:.0}")
         } else {
             "COLLECT".to_owned()
         };
+        format!("| {fps:>5} FPS")
+    }
+
+    pub fn text(metrics: &MetricsSnapshot) -> String {
+        let jitter_ms = metrics.jitter_ms();
+        let low_10_fps = metrics.low_10_fps();
         let jitter = if jitter_ms.is_finite() && jitter_ms >= 0.0 {
             format!("{jitter_ms:.1}")
         } else {
@@ -114,7 +161,7 @@ impl Renderer {
         } else {
             "COLLECT".to_owned()
         };
-        let mut text = format!("| {fps:>5} FPS");
+        let mut text = Self::fps_text(metrics);
         append_at_column(
             &mut text,
             FIRST_COLUMN,
@@ -197,7 +244,7 @@ impl Renderer {
         append_at_column(
             &mut text,
             THIRD_COLUMN,
-            &format!("| [{}] OSD", hotkeys[3].label()),
+            &format!("| [{}] CYCLE OSD", hotkeys[3].label()),
         );
         text
     }
@@ -207,6 +254,7 @@ impl Renderer {
         target_fps: Option<f32>,
         auto_algorithm_label: Option<&str>,
         hysteresis_percent: Option<f32>,
+        auto_target: Option<&str>,
     ) -> String {
         let target = target_fps
             .filter(|fps| fps.is_finite() && *fps > 0.0)
@@ -237,6 +285,11 @@ impl Renderer {
                     .map(|value| format!("{value:>5.1}"))
                     .unwrap_or_else(|| "   --".to_owned())
             ),
+        );
+        append_at_column(
+            &mut text,
+            THIRD_COLUMN,
+            &format!("| TARGET: {}", auto_target.unwrap_or("--")),
         );
         text
     }
@@ -303,80 +356,6 @@ impl Renderer {
         }
         rects
     }
-
-    /// Maps recent jitter samples to clipped graph rectangles.
-    fn jitter_graph_rects(
-        samples: &VecDeque<(Instant, f32)>,
-        origin: [u32; 2],
-        size: [u32; 2],
-        extent: [u32; 2],
-        window: Duration,
-    ) -> Vec<OverlayRect> {
-        if samples.is_empty() || size[0] == 0 || size[1] == 0 || window.is_zero() {
-            return Vec::new();
-        }
-        let visible_width = size[0].min(extent[0].saturating_sub(origin[0]));
-        let visible_height = size[1].min(extent[1].saturating_sub(origin[1]));
-        if visible_width == 0 || visible_height == 0 {
-            return Vec::new();
-        }
-
-        let Some((end, _)) = samples.back() else {
-            return Vec::new();
-        };
-        let end = *end;
-        let start = end
-            .checked_sub(window)
-            .unwrap_or_else(|| samples.front().map_or(end, |(time, _)| *time));
-        let available_window = end.saturating_duration_since(start);
-        if available_window.is_zero() {
-            return Vec::new();
-        }
-        let mut rects = Vec::with_capacity(visible_width as usize);
-        let mut previous_y: Option<u32> = None;
-        for x in 0..visible_width {
-            let ratio = if size[0] <= 1 {
-                1.0
-            } else {
-                x as f32 / (size[0] - 1) as f32
-            };
-            let offset = Duration::from_secs_f64(window.as_secs_f64() * f64::from(ratio));
-            let sample_time = start.checked_add(offset).unwrap_or(end).min(end);
-            let Some((lower, upper)) = samples.iter().zip(samples.iter().skip(1)).find(
-                |((lower_time, _), (upper_time, _))| {
-                    *lower_time <= sample_time && sample_time <= *upper_time
-                },
-            ) else {
-                continue;
-            };
-            let span = upper.0.saturating_duration_since(lower.0);
-            let fraction = if span.is_zero() {
-                0.0
-            } else {
-                sample_time.saturating_duration_since(lower.0).as_secs_f32() / span.as_secs_f32()
-            };
-            let value = lower.1 + (upper.1 - lower.1) * fraction;
-            if !value.is_finite() {
-                continue;
-            }
-            let normalized = (value / JITTER_GRAPH_MAX_MS).clamp(0.0, 1.0);
-            let y = size[1] - 1 - (normalized * (size[1] - 1) as f32).round() as u32;
-            if let Some(previous_y) = previous_y {
-                let segment_start = previous_y.min(y);
-                let segment_end = previous_y.max(y).min(visible_height - 1);
-                if segment_start < visible_height {
-                    rects.push(OverlayRect {
-                        x: origin[0] + x,
-                        y: origin[1] + segment_start,
-                        width: 1,
-                        height: segment_end - segment_start + 1,
-                    });
-                }
-            }
-            previous_y = Some(y);
-        }
-        rects
-    }
 }
 
 fn sensor_text(
@@ -431,6 +410,26 @@ fn format_fps(fps: f32) -> String {
         format!("{fps:.0}")
     } else {
         format!("{fps:.1}")
+    }
+}
+
+fn format_auto_target(target: (AutoMetric, AutoTarget), metrics: &MetricsSnapshot) -> String {
+    match target {
+        (AutoMetric::Fps, AutoTarget::Low10Fps) => {
+            let fps = metrics.low_10_fps();
+            if fps.is_finite() && fps > 0.0 {
+                format!("{fps:.0} FPS")
+            } else {
+                "COLLECT FPS".to_owned()
+            }
+        }
+        (AutoMetric::GpuVrmTempC, AutoTarget::Value(value)) => {
+            format!("{value} °C")
+        }
+        (AutoMetric::FanRpm, AutoTarget::Value(value)) => {
+            format!("{value} RPM")
+        }
+        _ => "N/A".to_owned(),
     }
 }
 
@@ -511,9 +510,6 @@ struct ImageResources {
 
 pub struct VulkanSwapchainRenderer {
     extent: vk::Extent2D,
-    jitter_graph_startup: bool,
-    jitter_graph_width_px: u32,
-    jitter_graph_height_px: u32,
     background_opacity: f32,
     scale_2x_min_width_px: u32,
     overlay_refresh_rate: u64,
@@ -536,10 +532,6 @@ struct PresentationMetricsHistory {
     fps_smoothing_window: Duration,
     minimum_collection_interval: Duration,
     fps_samples: VecDeque<(Instant, f32)>,
-    jitter_graph_window: Duration,
-    graph_last_present: Option<Instant>,
-    graph_intervals: VecDeque<f32>,
-    jitter_samples: VecDeque<(Instant, f32)>,
 }
 
 impl Default for PresentationMetricsHistory {
@@ -552,16 +544,12 @@ impl Default for PresentationMetricsHistory {
             fps_smoothing_window: Duration::from_secs(1),
             minimum_collection_interval: Duration::ZERO,
             fps_samples: VecDeque::new(),
-            jitter_graph_window: Duration::from_secs(3),
-            graph_last_present: None,
-            graph_intervals: VecDeque::new(),
-            jitter_samples: VecDeque::new(),
         }
     }
 }
 
 impl PresentationMetricsHistory {
-    /// Resets cap-dependent presentation samples while preserving graph history.
+    /// Resets cap-dependent presentation samples.
     fn reset(&mut self, generation: u64, now: Instant) {
         self.generation = generation;
         self.generation_started = Some(now);
@@ -570,33 +558,7 @@ impl PresentationMetricsHistory {
     }
 
     /// Records a presentation and calculates current FPS, jitter, and low-10 FPS.
-    fn record(
-        &mut self,
-        now: Instant,
-        generation: u64,
-        refresh_graph: bool,
-    ) -> (f32, f32, f32, f32) {
-        if refresh_graph {
-            let graph_interval_ms = self
-                .graph_last_present
-                .replace(now)
-                .map(|last| now.duration_since(last).as_secs_f32() * 1000.0)
-                .unwrap_or(0.0);
-            if graph_interval_ms.is_finite() && graph_interval_ms > 0.0 {
-                if self.graph_intervals.len() == 60 {
-                    self.graph_intervals.pop_front();
-                }
-                self.graph_intervals.push_back(graph_interval_ms);
-                let graph_jitter_ms = calculate_jitter(&self.graph_intervals);
-                self.jitter_samples.push_back((now, graph_jitter_ms));
-            }
-            while self.jitter_samples.front().is_some_and(|(timestamp, _)| {
-                now.saturating_duration_since(*timestamp) > self.jitter_graph_window
-            }) {
-                self.jitter_samples.pop_front();
-            }
-        }
-
+    fn record(&mut self, now: Instant, generation: u64) -> (f32, f32, f32, f32) {
         if self.generation != generation || self.generation_started.is_none() {
             self.reset(generation, now);
         }
@@ -669,20 +631,6 @@ fn calculate_low_10_fps(samples: &VecDeque<(Instant, f32)>) -> f32 {
         .min(fps_values.len())
         .saturating_sub(1);
     fps_values[index]
-}
-
-/// Computes the population standard deviation of frametime intervals.
-fn calculate_jitter(intervals: &VecDeque<f32>) -> f32 {
-    if intervals.is_empty() {
-        return -1.0;
-    }
-    let mean = intervals.iter().sum::<f32>() / intervals.len() as f32;
-    (intervals
-        .iter()
-        .map(|interval| (interval - mean).powi(2))
-        .sum::<f32>()
-        / intervals.len() as f32)
-        .sqrt()
 }
 
 /// Builds the graphics pipeline used to draw the configurable overlay background.
@@ -812,10 +760,6 @@ impl VulkanSwapchainRenderer {
         swapchain_images: &[vk::Image],
         fps_smoothing_window: Duration,
         minimum_collection_interval: Duration,
-        jitter_graph_startup: bool,
-        jitter_graph_width_px: u32,
-        jitter_graph_height_px: u32,
-        jitter_graph_window: Duration,
         overlay_refresh_rate: u64,
         background_opacity: f32,
         scale_2x_min_width_px: u32,
@@ -924,9 +868,6 @@ impl VulkanSwapchainRenderer {
 
         Ok(Self {
             extent,
-            jitter_graph_startup,
-            jitter_graph_width_px,
-            jitter_graph_height_px,
             background_opacity,
             scale_2x_min_width_px,
             overlay_refresh_rate: overlay_refresh_rate.max(1),
@@ -942,9 +883,6 @@ impl VulkanSwapchainRenderer {
             metrics_history: PresentationMetricsHistory {
                 fps_smoothing_window,
                 minimum_collection_interval,
-                fps_samples: VecDeque::new(),
-                jitter_samples: VecDeque::with_capacity(jitter_graph_width_px as usize),
-                jitter_graph_window,
                 ..PresentationMetricsHistory::default()
             },
         })
@@ -999,11 +937,8 @@ impl VulkanSwapchainRenderer {
         let refresh_overlay =
             overlay_refresh_due(self.overlay_poll_count, self.overlay_refresh_rate);
         self.overlay_poll_count = self.overlay_poll_count.wrapping_add(1);
-        let (frametime_ms, fps, jitter_ms, low_10_fps) = self.metrics_history.record(
-            now,
-            cap_generation,
-            refresh_overlay && self.jitter_graph_startup,
-        );
+        let (frametime_ms, fps, jitter_ms, low_10_fps) =
+            self.metrics_history.record(now, cap_generation);
         let current_metrics = MetricsSnapshot::new_with_hardware_metrics_at(
             frametime_ms,
             fps,
@@ -1032,10 +967,12 @@ impl VulkanSwapchainRenderer {
         queue_family: u32,
         image_index: u32,
         metrics: &MetricsSnapshot,
+        overlay_mode: OverlayMode,
         target_fps: Option<f32>,
         auto_algorithm_index: Option<usize>,
         auto_algorithm_label: Option<&str>,
         hysteresis_percent: Option<f32>,
+        auto_target: Option<(AutoMetric, AutoTarget)>,
         hotkeys: [Hotkey; 4],
         manual_step_fps: f32,
         feedback: OverlayFeedback,
@@ -1118,13 +1055,34 @@ impl VulkanSwapchainRenderer {
             device.cmd_begin_render_pass(command_buffer, &render_begin, vk::SubpassContents::INLINE)
         };
 
-        let text = Renderer::text(metrics);
-        let gpu_sensor_text = Renderer::gpu_sensor_text(metrics);
-        let cpu_sensor_text = Renderer::cpu_sensor_text(metrics);
-        let target_text =
-            Renderer::target_text(target_fps, auto_algorithm_index, hotkeys, manual_step_fps);
-        let status_text =
-            Renderer::status_text(target_fps, auto_algorithm_label, hysteresis_percent);
+        let full = overlay_mode == OverlayMode::Full;
+        let text = if full {
+            Renderer::text(metrics)
+        } else {
+            Renderer::fps_text(metrics)
+        };
+        let (gpu_sensor_text, cpu_sensor_text, target_text, status_text) = if full {
+            let formatted_auto_target =
+                auto_target.map(|target| format_auto_target(target, metrics));
+            (
+                Renderer::gpu_sensor_text(metrics),
+                Renderer::cpu_sensor_text(metrics),
+                Renderer::target_text(target_fps, auto_algorithm_index, hotkeys, manual_step_fps),
+                Renderer::status_text(
+                    target_fps,
+                    auto_algorithm_label,
+                    hysteresis_percent,
+                    formatted_auto_target.as_deref(),
+                ),
+            )
+        } else {
+            (String::new(), String::new(), String::new(), String::new())
+        };
+        let feedback = if full {
+            feedback
+        } else {
+            OverlayFeedback::default()
+        };
         let widest_line = [
             &text,
             &gpu_sensor_text,
@@ -1139,31 +1097,17 @@ impl VulkanSwapchainRenderer {
         let scale = overlay_text_scale(self.extent.width, self.scale_2x_min_width_px, widest_line);
         let target_scale = scale;
         let status_top = 8 + 7 * target_scale + 3;
-        let metrics_top = status_top + 7 * target_scale + 3;
+        let metrics_top = if full {
+            status_top + 7 * target_scale + 3
+        } else {
+            8
+        };
         let row_step = 7 * scale + 3;
         let gpu_sensor_top = metrics_top + row_step;
         let cpu_sensor_top = gpu_sensor_top + row_step;
-        let graph_top = cpu_sensor_top + row_step;
-        let graph_label_top = graph_top + self.jitter_graph_height_px.saturating_sub(7) / 2;
-        let graph_left = 8u32 + 16 * 6;
-        let background_width = (widest_line * 6 * scale)
-            .max(if self.jitter_graph_startup {
-                graph_left
-                    .saturating_add(self.jitter_graph_width_px)
-                    .saturating_add(8)
-            } else {
-                0
-            })
-            .saturating_add(20)
-            .min(self.extent.width);
-        let background_height = if self.jitter_graph_startup {
-            graph_top
-                .saturating_add(self.jitter_graph_height_px.max(7))
-                .saturating_add(8)
-        } else {
-            cpu_sensor_top + 7 * scale + 8
-        }
-        .min(self.extent.height);
+        let background_width = (widest_line * 6 * scale + 20).min(self.extent.width);
+        let bottom_row_top = if full { cpu_sensor_top } else { metrics_top };
+        let background_height = (bottom_row_top + 7 * scale + 8).min(self.extent.height);
         if self.background_opacity > 0.0 {
             let rect = [
                 -1.0,
@@ -1339,63 +1283,6 @@ impl VulkanSwapchainRenderer {
                     .layer_count(1)
             })
             .collect::<Vec<_>>();
-        let graph_label_rectangles = if self.jitter_graph_startup {
-            Renderer::text_rects_at(
-                "| JITTER 0-50MS",
-                [self.extent.width, self.extent.height],
-                1,
-                graph_label_top,
-            )
-        } else {
-            Vec::new()
-        }
-        .into_iter()
-        .map(|rect| {
-            vk::ClearRect::default()
-                .rect(
-                    vk::Rect2D::default()
-                        .offset(vk::Offset2D {
-                            x: rect.x as i32,
-                            y: rect.y as i32,
-                        })
-                        .extent(vk::Extent2D {
-                            width: rect.width,
-                            height: rect.height,
-                        }),
-                )
-                .base_array_layer(0)
-                .layer_count(1)
-        })
-        .collect::<Vec<_>>();
-        let jitter_graph_rectangles = if self.jitter_graph_startup {
-            Renderer::jitter_graph_rects(
-                &self.metrics_history.jitter_samples,
-                [graph_left, graph_top],
-                [self.jitter_graph_width_px, self.jitter_graph_height_px],
-                [self.extent.width, self.extent.height],
-                self.metrics_history.jitter_graph_window,
-            )
-        } else {
-            Vec::new()
-        }
-        .into_iter()
-        .map(|rect| {
-            vk::ClearRect::default()
-                .rect(
-                    vk::Rect2D::default()
-                        .offset(vk::Offset2D {
-                            x: rect.x as i32,
-                            y: rect.y as i32,
-                        })
-                        .extent(vk::Extent2D {
-                            width: rect.width,
-                            height: rect.height,
-                        }),
-                )
-                .base_array_layer(0)
-                .layer_count(1)
-        })
-        .collect::<Vec<_>>();
         let foreground = [vk::ClearAttachment::default()
             .aspect_mask(vk::ImageAspectFlags::COLOR)
             .color_attachment(0)
@@ -1405,8 +1292,9 @@ impl VulkanSwapchainRenderer {
                 },
             })];
         unsafe {
-            device.cmd_clear_attachments(command_buffer, &foreground, &metric_rectangles);
-            device.cmd_clear_attachments(command_buffer, &foreground, &graph_label_rectangles);
+            if !metric_rectangles.is_empty() {
+                device.cmd_clear_attachments(command_buffer, &foreground, &metric_rectangles);
+            }
             let status_foreground = [vk::ClearAttachment::default()
                 .aspect_mask(vk::ImageAspectFlags::COLOR)
                 .color_attachment(0)
@@ -1423,8 +1311,20 @@ impl VulkanSwapchainRenderer {
                         float32: [0.35, 0.85, 1.0, 1.0],
                     },
                 })];
-            device.cmd_clear_attachments(command_buffer, &target_foreground, &target_rectangles);
-            device.cmd_clear_attachments(command_buffer, &status_foreground, &status_rectangles);
+            if !target_rectangles.is_empty() {
+                device.cmd_clear_attachments(
+                    command_buffer,
+                    &target_foreground,
+                    &target_rectangles,
+                );
+            }
+            if !status_rectangles.is_empty() {
+                device.cmd_clear_attachments(
+                    command_buffer,
+                    &status_foreground,
+                    &status_rectangles,
+                );
+            }
             let feedback_foreground = [vk::ClearAttachment::default()
                 .aspect_mask(vk::ImageAspectFlags::COLOR)
                 .color_attachment(0)
@@ -1433,29 +1333,20 @@ impl VulkanSwapchainRenderer {
                         float32: [1.0, 0.72, 0.20, 1.0],
                     },
                 })];
-            device.cmd_clear_attachments(
-                command_buffer,
-                &feedback_foreground,
-                &target_feedback_rectangles,
-            );
-            device.cmd_clear_attachments(
-                command_buffer,
-                &feedback_foreground,
-                &status_feedback_rectangles,
-            );
-            let graph_foreground = [vk::ClearAttachment::default()
-                .aspect_mask(vk::ImageAspectFlags::COLOR)
-                .color_attachment(0)
-                .clear_value(vk::ClearValue {
-                    color: vk::ClearColorValue {
-                        float32: [0.35, 0.85, 1.0, 1.0],
-                    },
-                })];
-            device.cmd_clear_attachments(
-                command_buffer,
-                &graph_foreground,
-                &jitter_graph_rectangles,
-            );
+            if !target_feedback_rectangles.is_empty() {
+                device.cmd_clear_attachments(
+                    command_buffer,
+                    &feedback_foreground,
+                    &target_feedback_rectangles,
+                );
+            }
+            if !status_feedback_rectangles.is_empty() {
+                device.cmd_clear_attachments(
+                    command_buffer,
+                    &feedback_foreground,
+                    &status_feedback_rectangles,
+                );
+            }
             device.cmd_end_render_pass(command_buffer);
         }
 
@@ -1539,11 +1430,40 @@ mod tests {
     }
 
     #[test]
+    fn fps_only_text_contains_no_other_metrics() {
+        let now = Instant::now();
+        let metrics = MetricsSnapshot::new_with_fps(
+            16.0,
+            60.0,
+            0.5,
+            55.0,
+            GpuMeasurement {
+                value: 50.0,
+                timestamp: now,
+                status: TelemetryStatus::Available,
+                device_id: None,
+            },
+            now,
+        );
+        assert_eq!(Renderer::fps_text(&metrics), "|    60 FPS");
+        assert!(Renderer::text(&metrics).contains("10% LOW"));
+        let collecting = MetricsSnapshot::new_with_fps(
+            0.0,
+            -1.0,
+            -1.0,
+            -1.0,
+            metrics.gpu_measurement().clone(),
+            now,
+        );
+        assert_eq!(Renderer::fps_text(&collecting), "| COLLECT FPS");
+    }
+
+    #[test]
     /// Checks the configured threshold and ensures doubled text remains within the swapchain.
     fn overlay_text_scale_obeys_threshold_and_fit() {
-        assert_eq!(overlay_text_scale(3839, 3840, 100), 1);
-        assert_eq!(overlay_text_scale(3840, 3840, 100), 2);
-        assert_eq!(overlay_text_scale(3840, 3840, 320), 1);
+        assert_eq!(overlay_text_scale(3839, 3440, 100), 1);
+        assert_eq!(overlay_text_scale(3440, 3440, 100), 2);
+        assert_eq!(overlay_text_scale(3440, 3440, 320), 1);
     }
 
     #[test]
@@ -1554,28 +1474,30 @@ mod tests {
         let off = target_text(None, None);
         assert!(manual.contains("| [F10] -5 FPS"));
         assert!(manual.contains("| [F11] +5 FPS"));
-        assert!(manual.contains("| [F12] OSD"));
+        assert!(manual.contains("| [F12] CYCLE OSD"));
         assert!(auto.contains("| [F10] -1 %"));
         assert!(auto.contains("| [F11] +1 %"));
-        assert!(auto.contains("| [F12] OSD"));
+        assert!(auto.contains("| [F12] CYCLE OSD"));
         assert!(off.contains("[F10] --") && off.contains("[F11] --"));
-        let status = Renderer::status_text(Some(60.0), None, None);
+        let status = Renderer::status_text(Some(60.0), None, None, None);
         assert!(status.contains("MODE: MANUAL"));
         assert!(status.contains("| CAP:    60 FPS"));
         assert!(status.contains("| HYS:    -- %"));
-        let auto_status = Renderer::status_text(Some(75.0), Some("VRM"), Some(5.0));
+        let auto_status = Renderer::status_text(Some(75.0), Some("VRM"), Some(5.0), Some("100 °C"));
         assert!(auto_status.contains("MODE: AUTO (VRM)"));
         assert!(
-            Renderer::status_text(Some(75.0), Some("JIT"), Some(3.0)).contains("MODE: AUTO (JIT)")
+            Renderer::status_text(Some(75.0), Some("JIT"), Some(3.0), Some("60 FPS"))
+                .contains("MODE: AUTO (JIT)")
         );
         assert!(
-            Renderer::status_text(Some(75.0), Some("FAN"), Some(5.0)).contains("MODE: AUTO (FAN)")
+            Renderer::status_text(Some(75.0), Some("FAN"), Some(5.0), Some("2000 RPM"))
+                .contains("MODE: AUTO (FAN)")
         );
         assert!(auto_status
             .chars()
             .filter(|character| !character.is_whitespace())
             .all(|character| glyph(character) != [0; 7]));
-        assert!(Renderer::status_text(None, None, None).contains("CAP:   OFF FPS"));
+        assert!(Renderer::status_text(None, None, None, None).contains("CAP:   OFF FPS"));
         let text = target_text(Some(60.0), None);
         assert!(text
             .chars()
@@ -1653,6 +1575,7 @@ mod tests {
         }
         for (line, marker) in [
             (&manual, "| [F12]"),
+            (&status, "| TARGET:"),
             (&gpu_sensors, "| PPT:"),
             (&cpu_sensors, "| RPM:"),
         ] {
@@ -1661,16 +1584,9 @@ mod tests {
         assert_eq!(char_column(&metrics, "| JIT:"), SECOND_COLUMN);
         assert_eq!(char_column(&gpu_sensors, "| GPU:"), 0);
         assert_eq!(char_column(&cpu_sensors, "| CPU:"), 0);
-        assert!([
-            &manual,
-            &status,
-            &metrics,
-            &gpu_sensors,
-            &cpu_sensors,
-            "| JITTER 0-50MS",
-        ]
-        .into_iter()
-        .all(|line| line.starts_with('|')));
+        assert!([&manual, &status, &metrics, &gpu_sensors, &cpu_sensors,]
+            .into_iter()
+            .all(|line| line.starts_with('|')));
         for unit in [" °C", " %"] {
             assert_eq!(
                 char_column(&gpu_sensors, unit),
@@ -1688,15 +1604,59 @@ mod tests {
     }
 
     #[test]
+    fn status_row_shows_the_active_algorithm_target_and_unit() {
+        let now = Instant::now();
+        let gpu = GpuMeasurement {
+            value: 50.0,
+            timestamp: now,
+            status: TelemetryStatus::Available,
+            device_id: None,
+        };
+        let metrics = MetricsSnapshot::new_with_fps(16.0, 60.0, 0.5, 57.4, gpu.clone(), now);
+        let collecting = MetricsSnapshot::new_with_fps(0.0, -1.0, -1.0, -1.0, gpu, now);
+        for (label, target, expected) in [
+            ("JIT", (AutoMetric::Fps, AutoTarget::Low10Fps), "57 FPS"),
+            (
+                "VRM",
+                (AutoMetric::GpuVrmTempC, AutoTarget::Value(100.25)),
+                "100.25 °C",
+            ),
+            (
+                "FAN",
+                (AutoMetric::FanRpm, AutoTarget::Value(1000.0)),
+                "1000 RPM",
+            ),
+        ] {
+            let value = format_auto_target(target, &metrics);
+            assert_eq!(value, expected);
+            let status = Renderer::status_text(Some(90.0), Some(label), Some(5.0), Some(&value));
+            assert!(status.contains(&format!("| TARGET: {expected}")));
+            assert_eq!(char_column(&status, "| TARGET:"), THIRD_COLUMN);
+            assert!(status
+                .chars()
+                .filter(|character| !character.is_whitespace())
+                .all(|character| glyph(character) != [0; 7]));
+        }
+        assert_eq!(
+            format_auto_target((AutoMetric::Fps, AutoTarget::Low10Fps), &collecting),
+            "COLLECT FPS"
+        );
+        for cap in [Some(90.0), None] {
+            assert!(Renderer::status_text(cap, None, None, None).contains("| TARGET: --"));
+        }
+    }
+
+    #[test]
     /// Checks that text columns remain anchored with the largest manual step.
     fn overlay_column_anchors_are_stable_with_maximum_manual_step() {
         let keys = Renderer::target_text(Some(240.0), None, HOTKEYS, 240.0);
-        let status = Renderer::status_text(Some(240.0), None, None);
+        let status = Renderer::status_text(Some(240.0), None, None, None);
         assert_eq!(keys.find("| [F10]").unwrap(), FIRST_COLUMN);
         assert_eq!(keys.find("| [F11]").unwrap(), SECOND_COLUMN);
         assert_eq!(keys.find("| [F12]").unwrap(), THIRD_COLUMN);
         assert_eq!(status.find("| CAP:").unwrap(), FIRST_COLUMN);
         assert_eq!(status.find("| HYS:").unwrap(), SECOND_COLUMN);
+        assert_eq!(status.find("| TARGET:").unwrap(), THIRD_COLUMN);
     }
 
     #[test]
@@ -1705,7 +1665,10 @@ mod tests {
         let text = Renderer::target_text(Some(77.5), None, HOTKEYS, 5.5);
         assert!(text.contains("| [F10] -5.5 FPS"));
         assert!(text.contains("| [F11] +5.5 FPS"));
-        assert!(Renderer::status_text(Some(77.5), Some("JIT"), Some(5.5)).contains("HYS:   5.5 %"));
+        assert!(
+            Renderer::status_text(Some(77.5), Some("JIT"), Some(5.5), Some("60 FPS"))
+                .contains("HYS:   5.5 %")
+        );
     }
 
     #[test]
@@ -1726,7 +1689,7 @@ mod tests {
     #[test]
     /// Checks that cap and hysteresis feedback highlight their status fields.
     fn cap_and_hysteresis_feedback_highlight_their_status_fields() {
-        let status = Renderer::status_text(Some(62.5), Some("JIT"), Some(10.0));
+        let status = Renderer::status_text(Some(62.5), Some("JIT"), Some(10.0), Some("60 FPS"));
         for field in ["CAP:  62.5 FPS", "HYS:  10.0 %"] {
             let highlights = Renderer::feedback_rects(&status, [1200, 100], 1, 17, field);
             assert!(!highlights.is_empty());
@@ -1743,35 +1706,30 @@ mod tests {
         };
 
         for sample in 0..=6 {
-            let metrics = history.record(
-                start + std::time::Duration::from_millis(sample * 16),
-                0,
-                true,
-            );
+            let metrics = history.record(start + std::time::Duration::from_millis(sample * 16), 0);
             assert_eq!(metrics.1, -1.0);
             assert_eq!(metrics.2, -1.0);
             assert_eq!(metrics.3, -1.0);
         }
-        let metrics = history.record(start + Duration::from_millis(112), 0, true);
+        let metrics = history.record(start + Duration::from_millis(112), 0);
         assert!(metrics.1 >= 0.0);
         assert!(metrics.2 >= 0.0);
         assert!(metrics.3 > 0.0);
 
         let reset_time = start + Duration::from_millis(128);
-        let metrics = history.record(reset_time, 1, true);
+        let metrics = history.record(reset_time, 1);
         assert_eq!(metrics, (0.0, -1.0, -1.0, -1.0));
 
         for sample in 1..=6 {
             let metrics = history.record(
                 reset_time + std::time::Duration::from_millis(sample * 16),
                 1,
-                true,
             );
             assert_eq!(metrics.1, -1.0);
             assert_eq!(metrics.2, -1.0);
             assert_eq!(metrics.3, -1.0);
         }
-        let metrics = history.record(reset_time + Duration::from_millis(112), 1, true);
+        let metrics = history.record(reset_time + Duration::from_millis(112), 1);
         assert!(metrics.1 > 0.0);
         assert!(metrics.2 >= 0.0);
         assert!(metrics.3 > 0.0);
@@ -1786,15 +1744,13 @@ mod tests {
             ..PresentationMetricsHistory::default()
         };
 
-        assert_eq!(history.record(start, 0, true).1, -1.0);
-        let fps = history.record(start + Duration::from_millis(10), 0, true).1;
+        assert_eq!(history.record(start, 0).1, -1.0);
+        let fps = history.record(start + Duration::from_millis(10), 0).1;
         assert!((fps - 100.0).abs() < 0.1);
-        let fps = history.record(start + Duration::from_millis(30), 0, true).1;
+        let fps = history.record(start + Duration::from_millis(30), 0).1;
         assert!((fps - 75.0).abs() < 0.1);
 
-        let fps = history
-            .record(start + Duration::from_millis(1040), 0, true)
-            .1;
+        let fps = history.record(start + Duration::from_millis(1040), 0).1;
         assert!((fps - (1000.0 / 1010.0)).abs() < 0.01);
     }
 
@@ -1807,20 +1763,16 @@ mod tests {
             ..PresentationMetricsHistory::default()
         };
 
-        assert_eq!(history.record(start, 0, true).3, -1.0);
-        let low_10 = history.record(start + Duration::from_millis(10), 0, true).3;
+        assert_eq!(history.record(start, 0).3, -1.0);
+        let low_10 = history.record(start + Duration::from_millis(10), 0).3;
         assert!((low_10 - 100.0).abs() < 0.1);
-        let low_10 = history.record(start + Duration::from_millis(30), 0, true).3;
+        let low_10 = history.record(start + Duration::from_millis(30), 0).3;
         assert!((low_10 - 50.0).abs() < 0.1);
 
-        let low_10 = history
-            .record(start + Duration::from_millis(150), 0, true)
-            .3;
+        let low_10 = history.record(start + Duration::from_millis(150), 0).3;
         assert!((low_10 - (1000.0 / 120.0)).abs() < 0.1);
 
-        let low_10 = history
-            .record(start + Duration::from_millis(251), 0, true)
-            .3;
+        let low_10 = history.record(start + Duration::from_millis(251), 0).3;
         assert!((low_10 - (1000.0 / 101.0)).abs() < 0.1);
     }
 
@@ -1834,105 +1786,21 @@ mod tests {
             ..PresentationMetricsHistory::default()
         };
 
-        assert_eq!(history.record(start, 0, true), (0.0, -1.0, -1.0, -1.0));
-        let metrics = history.record(start + Duration::from_millis(10), 0, true);
+        assert_eq!(history.record(start, 0), (0.0, -1.0, -1.0, -1.0));
+        let metrics = history.record(start + Duration::from_millis(10), 0);
         assert_eq!(metrics.1, -1.0);
         assert_eq!(metrics.2, -1.0);
         assert_eq!(metrics.3, -1.0);
 
-        let metrics = history.record(start + Duration::from_millis(30), 0, true);
+        let metrics = history.record(start + Duration::from_millis(30), 0);
         assert!((metrics.1 - 75.0).abs() < 0.1);
         assert!((metrics.2 - 5.0).abs() < 0.1);
         assert!((metrics.3 - 50.0).abs() < 0.1);
 
-        let metrics = history.record(start + Duration::from_millis(150), 0, true);
+        let metrics = history.record(start + Duration::from_millis(150), 0);
         assert!((metrics.1 - (1000.0 / 120.0)).abs() < 0.1);
         assert_eq!(metrics.2, 0.0);
         assert!((metrics.3 - (1000.0 / 120.0)).abs() < 0.1);
-    }
-
-    #[test]
-    /// Checks graph dimensions and clipping against the swapchain extent.
-    fn jitter_graph_rectangles_fit_configured_dimensions_and_swapchain_extent() {
-        let start = Instant::now();
-        let samples = VecDeque::from([
-            (start, 0.0),
-            (start + Duration::from_secs(1), 5.0),
-            (start + Duration::from_secs(2), 10.0),
-        ]);
-        let graph =
-            Renderer::jitter_graph_rects(&samples, [2, 3], [3, 3], [5, 6], Duration::from_secs(2));
-
-        assert_eq!(graph.len(), 2);
-        assert!(graph.iter().all(|rect| rect.width == 1));
-        assert!(graph
-            .iter()
-            .all(|rect| rect.x >= 2 && rect.x + rect.width <= 5));
-        assert!(graph
-            .iter()
-            .all(|rect| rect.y >= 3 && rect.y + rect.height <= 6));
-        assert_eq!(graph.first().map(|rect| rect.y), Some(5));
-        assert_eq!(graph.last().map(|rect| rect.y), Some(5));
-    }
-
-    #[test]
-    /// Checks that graph values use the fixed zero-to-fifty millisecond scale.
-    fn jitter_graph_uses_a_fixed_zero_to_fifty_millisecond_scale() {
-        let start = Instant::now();
-        let samples = VecDeque::from([
-            (start, 0.0),
-            (start + Duration::from_secs(1), 25.0),
-            (start + Duration::from_secs(2), 100.0),
-        ]);
-        let graph = Renderer::jitter_graph_rects(
-            &samples,
-            [0, 0],
-            [3, 20],
-            [3, 20],
-            Duration::from_secs(2),
-        );
-        assert_eq!(graph.len(), 2);
-        assert_eq!((graph[0].y, graph[0].height), (9, 11));
-        assert_eq!((graph[1].y, graph[1].height), (0, 10));
-        assert_eq!(JITTER_GRAPH_MAX_MS, 50.0);
-    }
-
-    #[test]
-    /// Checks graph-history persistence across cap changes and time-based expiry.
-    fn jitter_graph_history_survives_cap_generation_changes_and_expires_by_time() {
-        let start = Instant::now();
-        let mut history = PresentationMetricsHistory {
-            jitter_graph_window: Duration::from_secs(3),
-            ..PresentationMetricsHistory::default()
-        };
-        for sample in 0..=4 {
-            history.record(start + Duration::from_millis(sample * 100), 0, true);
-        }
-        let samples_before_change = history.jitter_samples.len();
-        assert!(samples_before_change >= 2);
-
-        history.record(start + Duration::from_millis(500), 1, true);
-        assert_eq!(history.jitter_samples.len(), samples_before_change + 1);
-        assert_eq!(history.graph_intervals.len(), 5);
-
-        history.record(start + Duration::from_secs(4), 1, true);
-        assert_eq!(history.jitter_samples.len(), 1);
-        assert_eq!(history.graph_intervals.len(), 6);
-    }
-
-    #[test]
-    /// Checks that a disabled graph does not collect graph-specific history.
-    fn disabled_jitter_graph_does_not_collect_graph_history() {
-        let start = Instant::now();
-        let mut history = PresentationMetricsHistory {
-            jitter_graph_window: Duration::from_secs(3),
-            ..PresentationMetricsHistory::default()
-        };
-        for sample in 0..=20 {
-            history.record(start + Duration::from_millis(sample * 16), 0, false);
-        }
-        assert!(history.graph_intervals.is_empty());
-        assert!(history.jitter_samples.is_empty());
     }
 
     #[test]
@@ -2001,8 +1869,8 @@ mod tests {
         let manual_low = target_text(Some(60.0), None);
         let manual_high = target_text(Some(240.0), None);
         assert_eq!(manual_low.len(), manual_high.len());
-        let status_low = Renderer::status_text(Some(1.0), None, None);
-        let status_high = Renderer::status_text(Some(240.0), None, None);
+        let status_low = Renderer::status_text(Some(1.0), None, None, None);
+        let status_high = Renderer::status_text(Some(240.0), None, None, None);
         assert_eq!(status_low.len(), status_high.len());
     }
 

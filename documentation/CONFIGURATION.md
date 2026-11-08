@@ -28,7 +28,7 @@ configuration.
 | `[framecap]` | Initial cap, metrics window, and GPU polling interval. `target_fps = 0` starts in OFF. |
 | `[key-bindings]` | Enable and assign distinct F9-F12 shortcuts. |
 | `[sensors]` | Optional hwmon path overrides for temperatures, power, and fan speed. |
-| `[overlay]` | Visibility, refresh, smoothing, text scaling, background, and jitter graph. |
+| `[overlay]` | Visibility, refresh, smoothing, text scaling, and background. |
 | `[auto-mode]` | Algorithm order and GPU/jitter thresholds. |
 | `[auto-mode.algorithms.<name>]` | Metric, target, hysteresis, intervals, steps, FPS bounds, and measurement expiry. |
 | `[manual-mode]` | Manual FPS step and bounds. |
@@ -53,7 +53,8 @@ are obsolete and do not control the current algorithms.
 
 The defaults are F9 to cycle manual, configured automatic algorithms, OFF,
 then manual; F10/F11 decrease/increase the manual cap or active automatic
-hysteresis; F12 toggles the overlay. OFF remembers the previous cap.
+hysteresis; F12 cycles the overlay through full, FPS only, and off. Limiter
+OFF remembers the previous cap.
 All shortcuts are configurable and must be distinct. They require X11/XWayland
 and may prevent the application from receiving those keys. Native Wayland has no
 global shortcut support in the current backend.

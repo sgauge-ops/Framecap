@@ -89,6 +89,11 @@ impl AutoRegulator {
         }
     }
 
+    pub fn overlay_target(&self, algorithm_index: usize) -> Option<(AutoMetric, AutoTarget)> {
+        let config = &self.algorithms.get(algorithm_index)?.config;
+        Some((config.metric, config.target))
+    }
+
     /// Evaluates one selected algorithm and applies an eligible target change.
     pub fn evaluate(
         &mut self,
@@ -355,6 +360,19 @@ mod tests {
         assert_eq!(regulator.overlay_label(0), Some("FAN"));
         assert_eq!(regulator.overlay_label(1), Some("JIT"));
         assert_eq!(regulator.overlay_label(2), Some("VRM"));
+        assert_eq!(
+            regulator.overlay_target(0),
+            Some((AutoMetric::FanRpm, AutoTarget::Value(2000.0)))
+        );
+        assert_eq!(
+            regulator.overlay_target(1),
+            Some((AutoMetric::Fps, AutoTarget::Low10Fps))
+        );
+        assert_eq!(
+            regulator.overlay_target(2),
+            Some((AutoMetric::GpuVrmTempC, AutoTarget::Value(100.0)))
+        );
+        assert_eq!(regulator.overlay_target(3), None);
     }
 
     #[test]

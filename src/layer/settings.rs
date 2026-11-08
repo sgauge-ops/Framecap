@@ -49,10 +49,6 @@ pub struct OverlaySettings {
     pub refresh_rate: u64,
     pub gpu_smoothing_window_ms: u64,
     pub scale_2x_min_width_px: u32,
-    pub jitter_graph_startup: u8,
-    pub jitter_graph_width_px: u32,
-    pub jitter_graph_height_px: u32,
-    pub jitter_graph_window_ms: u64,
     pub background_opacity: f32,
     pub startup: u8,
 }
@@ -63,24 +59,34 @@ impl Default for OverlaySettings {
         Self {
             refresh_rate: 10,
             gpu_smoothing_window_ms: 1000,
-            scale_2x_min_width_px: 3840,
-            jitter_graph_startup: 0,
-            jitter_graph_width_px: 100,
-            jitter_graph_height_px: 10,
-            jitter_graph_window_ms: 3000,
+            scale_2x_min_width_px: 3440,
             background_opacity: 0.25,
-            startup: 1,
+            startup: 2,
         }
     }
 }
 
 #[derive(Clone, Debug)]
 pub struct AutoModeSettings {
+    pub algorithm_order: Vec<String>,
+    pub algorithms: Vec<AutoAlgorithmSettings>,
+}
+
+#[derive(Clone, Debug)]
+pub struct GpuThresholdSettings {
     pub gpu_increase_limit: f32,
     pub gpu_decrease_limit: f32,
     pub frame_jitter_limit: f32,
-    pub algorithm_order: Vec<String>,
-    pub algorithms: Vec<AutoAlgorithmSettings>,
+}
+
+impl Default for GpuThresholdSettings {
+    fn default() -> Self {
+        Self {
+            gpu_increase_limit: 98.0,
+            gpu_decrease_limit: 90.0,
+            frame_jitter_limit: 2.0,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -102,15 +108,13 @@ pub struct AutoAlgorithmSettings {
     pub min_fps: f32,
     pub max_fps: f32,
     pub measurement_expiry_ms: u64,
+    pub gpu_threshold: Option<GpuThresholdSettings>,
 }
 
 impl Default for AutoModeSettings {
     /// Returns the built-in automatic-regulation defaults.
     fn default() -> Self {
         Self {
-            gpu_increase_limit: 98.0,
-            gpu_decrease_limit: 90.0,
-            frame_jitter_limit: 2.0,
             algorithm_order: vec![
                 "gpu_threshold".to_owned(),
                 "vrm_temp".to_owned(),
@@ -129,6 +133,7 @@ impl Default for AutoModeSettings {
                     min_fps: 1.0,
                     max_fps: 240.0,
                     measurement_expiry_ms: 1000,
+                    gpu_threshold: Some(GpuThresholdSettings::default()),
                 },
                 AutoAlgorithmSettings {
                     name: "vrm_temp".to_owned(),
@@ -142,6 +147,7 @@ impl Default for AutoModeSettings {
                     min_fps: 1.0,
                     max_fps: 240.0,
                     measurement_expiry_ms: 1000,
+                    gpu_threshold: None,
                 },
                 AutoAlgorithmSettings {
                     name: "fan_rpm".to_owned(),
@@ -155,6 +161,7 @@ impl Default for AutoModeSettings {
                     min_fps: 1.0,
                     max_fps: 240.0,
                     measurement_expiry_ms: 1000,
+                    gpu_threshold: None,
                 },
             ],
         }
@@ -254,9 +261,6 @@ struct RawFramecapSettings {
     jitter_low: Option<f32>,
     gpu_saturation: Option<f32>,
     gpu_smoothing_window_ms: Option<u64>,
-    jitter_graph_width_px: Option<u32>,
-    jitter_graph_height_px: Option<u32>,
-    jitter_graph_window_ms: Option<u64>,
     background_opacity: Option<f32>,
     startup: Option<u8>,
     manual_step_fps: Option<f32>,
@@ -280,10 +284,6 @@ struct RawOverlaySettings {
     refresh_rate: Option<u64>,
     gpu_smoothing_window_ms: Option<u64>,
     scale_2x_min_width_px: Option<u32>,
-    jitter_graph_startup: Option<u8>,
-    jitter_graph_width_px: Option<u32>,
-    jitter_graph_height_px: Option<u32>,
-    jitter_graph_window_ms: Option<u64>,
     background_opacity: Option<f32>,
     startup: Option<u8>,
 }
@@ -291,9 +291,6 @@ struct RawOverlaySettings {
 #[derive(Deserialize, Default)]
 #[serde(default, deny_unknown_fields)]
 struct RawAutoModeSettings {
-    gpu_increase_limit: Option<f32>,
-    gpu_decrease_limit: Option<f32>,
-    frame_jitter_limit: Option<f32>,
     algorithm_order: Option<Vec<String>>,
     algorithms: Option<BTreeMap<String, RawAutoAlgorithmSettings>>,
 }
@@ -311,6 +308,9 @@ struct RawAutoAlgorithmSettings {
     min_fps: Option<f32>,
     max_fps: Option<f32>,
     measurement_expiry_ms: Option<u64>,
+    gpu_increase_limit: Option<f32>,
+    gpu_decrease_limit: Option<f32>,
+    frame_jitter_limit: Option<f32>,
 }
 
 #[derive(Deserialize)]
@@ -442,21 +442,6 @@ impl Settings {
                 scale_2x_min_width_px: overlay
                     .scale_2x_min_width_px
                     .unwrap_or(defaults.overlay.scale_2x_min_width_px),
-                jitter_graph_startup: overlay
-                    .jitter_graph_startup
-                    .unwrap_or(defaults.overlay.jitter_graph_startup),
-                jitter_graph_width_px: overlay
-                    .jitter_graph_width_px
-                    .or(framecap.jitter_graph_width_px)
-                    .unwrap_or(defaults.overlay.jitter_graph_width_px),
-                jitter_graph_height_px: overlay
-                    .jitter_graph_height_px
-                    .or(framecap.jitter_graph_height_px)
-                    .unwrap_or(defaults.overlay.jitter_graph_height_px),
-                jitter_graph_window_ms: overlay
-                    .jitter_graph_window_ms
-                    .or(framecap.jitter_graph_window_ms)
-                    .unwrap_or(defaults.overlay.jitter_graph_window_ms),
                 background_opacity: overlay
                     .background_opacity
                     .or(framecap.background_opacity)
@@ -467,15 +452,6 @@ impl Settings {
                     .unwrap_or(defaults.overlay.startup),
             },
             auto_mode: AutoModeSettings {
-                gpu_increase_limit: auto_mode
-                    .gpu_increase_limit
-                    .unwrap_or(defaults.auto_mode.gpu_increase_limit),
-                gpu_decrease_limit: auto_mode
-                    .gpu_decrease_limit
-                    .unwrap_or(defaults.auto_mode.gpu_decrease_limit),
-                frame_jitter_limit: auto_mode
-                    .frame_jitter_limit
-                    .unwrap_or(defaults.auto_mode.frame_jitter_limit),
                 algorithm_order: auto_mode
                     .algorithm_order
                     .clone()
@@ -533,9 +509,6 @@ fn has_legacy_settings(framecap: &RawFramecapSettings) -> bool {
         || framecap.hotkey_down.is_some()
         || framecap.hotkey_toggle.is_some()
         || framecap.gpu_smoothing_window_ms.is_some()
-        || framecap.jitter_graph_width_px.is_some()
-        || framecap.jitter_graph_height_px.is_some()
-        || framecap.jitter_graph_window_ms.is_some()
         || framecap.background_opacity.is_some()
         || framecap.startup.is_some()
         || framecap.manual_step_fps.is_some()
@@ -596,6 +569,34 @@ fn parse_ordered_auto_algorithms(
             RawAutoTarget::Metric(metric) => AutoTargetSettings::Metric(metric),
             RawAutoTarget::Value(value) => AutoTargetSettings::Value(value),
         });
+        let is_gpu_threshold = name == "gpu_threshold";
+        let gpu_threshold = if is_gpu_threshold {
+            let threshold_defaults = default
+                .gpu_threshold
+                .as_ref()
+                .expect("gpu_threshold defaults must include its gates");
+            Some(GpuThresholdSettings {
+                gpu_increase_limit: raw
+                    .gpu_increase_limit
+                    .unwrap_or(threshold_defaults.gpu_increase_limit),
+                gpu_decrease_limit: raw
+                    .gpu_decrease_limit
+                    .unwrap_or(threshold_defaults.gpu_decrease_limit),
+                frame_jitter_limit: raw
+                    .frame_jitter_limit
+                    .unwrap_or(threshold_defaults.frame_jitter_limit),
+            })
+        } else {
+            if raw.gpu_increase_limit.is_some()
+                || raw.gpu_decrease_limit.is_some()
+                || raw.frame_jitter_limit.is_some()
+            {
+                eprintln!(
+                    "Framecap: GPU threshold settings are only valid in [auto-mode.algorithms.gpu_threshold]; ignoring them for {name}"
+                );
+            }
+            None
+        };
         algorithms.push(AutoAlgorithmSettings {
             name,
             metric: raw.metric.unwrap_or_else(|| default.metric.clone()),
@@ -618,6 +619,7 @@ fn parse_ordered_auto_algorithms(
             measurement_expiry_ms: raw
                 .measurement_expiry_ms
                 .unwrap_or(default.measurement_expiry_ms),
+            gpu_threshold,
         });
     }
     for name in raw_algorithms.keys() {
@@ -663,18 +665,9 @@ mod tests {
     use super::*;
 
     #[test]
-    /// Checks the jitter graph default and its TOML override.
-    fn jitter_graph_is_disabled_by_default_and_configurable() {
-        assert_eq!(Settings::default().overlay.jitter_graph_startup, 0);
-
-        let settings: RawSettings = toml::from_str("[overlay]\njitter_graph_startup = 1").unwrap();
-        assert_eq!(settings.overlay.jitter_graph_startup, Some(1));
-    }
-
-    #[test]
     /// Checks the built-in and configured 2x overlay width threshold.
-    fn overlay_scale_threshold_defaults_to_3840_and_is_configurable() {
-        assert_eq!(Settings::default().overlay.scale_2x_min_width_px, 3840);
+    fn overlay_scale_threshold_defaults_to_3440_and_is_configurable() {
+        assert_eq!(Settings::default().overlay.scale_2x_min_width_px, 3440);
 
         let settings: RawSettings =
             toml::from_str("[overlay]\nscale_2x_min_width_px = 2560").unwrap();
@@ -743,26 +736,36 @@ mod tests {
 
     #[test]
     /// Checks parsing of configurable GPU threshold percentages.
-    fn gpu_thresholds_are_configurable_in_auto_mode() {
+    fn gpu_threshold_settings_belong_to_the_gpu_threshold_algorithm() {
         let defaults = Settings::default();
-        assert_eq!(defaults.auto_mode.gpu_increase_limit, 98.0);
-        assert_eq!(defaults.auto_mode.gpu_decrease_limit, 90.0);
+        let defaults = defaults.auto_mode.algorithms[0]
+            .gpu_threshold
+            .as_ref()
+            .unwrap();
+        assert_eq!(defaults.gpu_increase_limit, 98.0);
+        assert_eq!(defaults.gpu_decrease_limit, 90.0);
+        assert_eq!(defaults.frame_jitter_limit, 2.0);
 
-        let settings: RawSettings =
-            toml::from_str("[auto-mode]\ngpu_increase_limit = 85\ngpu_decrease_limit = 97")
-                .unwrap();
-        assert_eq!(settings.auto_mode.gpu_increase_limit, Some(85.0));
-        assert_eq!(settings.auto_mode.gpu_decrease_limit, Some(97.0));
+        let settings: RawSettings = toml::from_str(
+            "[auto-mode.algorithms.gpu_threshold]\ngpu_increase_limit = 85\ngpu_decrease_limit = 97\nframe_jitter_limit = 3.5\n[auto-mode.algorithms.vrm_temp]\nmetric = \"gpu_vrm_temp_c\"\ntarget = 100.0",
+        )
+        .unwrap();
+        let algorithms = parse_auto_algorithms(
+            settings.auto_mode.algorithms,
+            vec!["gpu_threshold".to_owned(), "vrm_temp".to_owned()],
+            Settings::default().auto_mode.algorithms,
+        );
+        let gpu_threshold = algorithms[0].gpu_threshold.as_ref().unwrap();
+        assert_eq!(gpu_threshold.gpu_increase_limit, 85.0);
+        assert_eq!(gpu_threshold.gpu_decrease_limit, 97.0);
+        assert_eq!(gpu_threshold.frame_jitter_limit, 3.5);
+        assert!(algorithms[1].gpu_threshold.is_none());
     }
 
     #[test]
-    /// Checks parsing and defaults for the GPU-threshold jitter limit.
-    fn frame_jitter_limit_is_configurable_in_auto_mode() {
-        assert_eq!(Settings::default().auto_mode.frame_jitter_limit, 2.0);
-
-        let settings: RawSettings =
-            toml::from_str("[auto-mode]\nframe_jitter_limit = 3.5").unwrap();
-        assert_eq!(settings.auto_mode.frame_jitter_limit, Some(3.5));
+    /// Rejects GPU-threshold settings at the shared auto-mode level.
+    fn gpu_threshold_settings_are_not_shared_auto_mode_settings() {
+        assert!(toml::from_str::<RawSettings>("[auto-mode]\ngpu_increase_limit = 85").is_err());
     }
 
     #[test]
@@ -795,9 +798,15 @@ mod tests {
     /// Checks that the shipped example parses with its active GPU and jitter thresholds.
     fn shipped_configuration_parses_gpu_and_jitter_thresholds() {
         let settings: RawSettings = toml::from_str(include_str!("../../framecap.toml")).unwrap();
-        assert_eq!(settings.auto_mode.gpu_increase_limit, Some(98.0));
-        assert_eq!(settings.auto_mode.gpu_decrease_limit, Some(90.0));
-        assert_eq!(settings.auto_mode.frame_jitter_limit, Some(2.0));
+        let gpu_threshold = settings
+            .auto_mode
+            .algorithms
+            .unwrap()
+            .remove("gpu_threshold")
+            .unwrap();
+        assert_eq!(gpu_threshold.gpu_increase_limit, Some(98.0));
+        assert_eq!(gpu_threshold.gpu_decrease_limit, Some(90.0));
+        assert_eq!(gpu_threshold.frame_jitter_limit, Some(2.0));
     }
 
     #[test]

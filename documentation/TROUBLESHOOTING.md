@@ -39,11 +39,13 @@ Keep the game, driver, and launch settings the same when comparing runs.
 
    Compare with `vkcube --c 300` without Framecap. If the overlay works in
    `vkcube` but not in the game, collect the logs below for the game.
-5. Check the effective configuration: `[overlay].startup = 1` makes the
-   overlay visible at startup, and F12 toggles it by default. Shortcuts require
+5. Check the effective configuration: `[overlay].startup = 2` shows the full
+   overlay at startup, `1` shows FPS only, and `0` hides it. F12 cycles these
+   modes by default. Shortcuts require
    X11/XWayland, may be disabled or rebound, and do not work through the
-   current backend on native Wayland. A hidden overlay does not disable the
-   limiter.
+   current backend on native Wayland. Framecap uses one process-wide listener
+   for all Vulkan devices in an application. A hidden overlay does not disable
+   the limiter.
 6. Check the [Framecap log](#framecap-diagnostics-log) for initialization,
    configuration, Vulkan, or overlay errors. An absent log can mean the layer
    was not loaded, but may also mean the configured log is elsewhere or could

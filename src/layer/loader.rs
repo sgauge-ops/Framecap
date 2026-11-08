@@ -4,7 +4,10 @@ use crate::layer::diagnostics;
 use crate::layer::input_x11::HotkeyWorker;
 use crate::layer::lib::{GpuMeasurement, HardwareMetrics, TelemetryStatus};
 use crate::layer::limiter::{wait_until, FrameCapController, FrameScheduler};
-use crate::layer::renderer::{OverlayFeedbackEvent, OverlayFeedbackState, VulkanSwapchainRenderer};
+use crate::layer::renderer::{
+    OverlayFeedbackEvent, OverlayFeedbackState, OverlayMode, OverlayModeState,
+    VulkanSwapchainRenderer,
+};
 use crate::layer::telemetry::{
     AmdGpuProvider, CpuUsageProvider, GpuTelemetryProvider, GpuUsageSmoother,
     HardwareMetricsSmoother, HwmonMetricsProvider,
@@ -93,14 +96,10 @@ struct DeviceState {
     minimum_metrics_collection_interval: Duration,
     overlay_refresh_rate: u64,
     scale_2x_min_width_px: u32,
-    jitter_graph_startup: bool,
-    jitter_graph_width_px: u32,
-    jitter_graph_height_px: u32,
-    jitter_graph_window: Duration,
     overlay_background_opacity: f32,
     queue_families: HashMap<usize, u32>,
     frame_cap: Arc<FrameCapController>,
-    overlay_visible: Arc<AtomicBool>,
+    overlay_mode: Arc<OverlayModeState>,
     active_auto_algorithm: Arc<AtomicI32>,
     auto_hysteresis_percent: Arc<Vec<AtomicU32>>,
     hotkey_config: [Hotkey; 4],
@@ -736,14 +735,14 @@ pub unsafe extern "system" fn vkCreateDevice(
             .collect::<Vec<_>>()
             .join(",");
         diagnostics::info(format!(
-            "configuration: target_fps={} input_enabled={} hotkeys=auto:{:?},down:{:?},up:{:?},toggle:{:?} overlay_startup_visible={} auto_algorithms=[{}] gpu_increase_limit={} gpu_decrease_limit={} frame_jitter_limit_ms={} manual_step_fps={} manual_bounds={}..{} gpu_poll_rate_ms={} overlay_refresh_rate={} gpu_expiry_ms={} gpu_smoothing_window_ms={} jitter_graph_startup={} jitter_graph={}x{} window={}ms background_opacity={} window_size={}",
+            "configuration: target_fps={} input_enabled={} hotkeys=auto:{:?},down:{:?},up:{:?},toggle:{:?} overlay_startup={} auto_algorithms=[{}] gpu_increase_limit={} gpu_decrease_limit={} frame_jitter_limit_ms={} manual_step_fps={} manual_bounds={}..{} gpu_poll_rate_ms={} overlay_refresh_rate={} gpu_expiry_ms={} gpu_smoothing_window_ms={} background_opacity={} window_size={}",
             config.target_fps.map_or_else(|| "OFF".to_owned(), |fps| fps.to_string()),
             config.input_enabled,
             config.hotkey_auto,
             config.hotkey_down,
             config.hotkey_up,
             config.hotkey_toggle,
-            config.startup != 0,
+            config.startup,
             auto_algorithm_summary,
             config.gpu_increase_limit,
             config.gpu_decrease_limit,
@@ -755,10 +754,6 @@ pub unsafe extern "system" fn vkCreateDevice(
             config.refresh_rate,
             config.gpu_expiry_ms,
             config.gpu_smoothing_window_ms,
-            config.jitter_graph_startup,
-            config.jitter_graph_width_px,
-            config.jitter_graph_height_px,
-            config.jitter_graph_window_ms,
             config.overlay_background_opacity,
             config.window_size,
         ));
@@ -767,7 +762,7 @@ pub unsafe extern "system" fn vkCreateDevice(
             config.manual_min_fps,
             config.manual_max_fps,
         ));
-        let overlay_visible = Arc::new(AtomicBool::new(config.startup != 0));
+        let overlay_mode = Arc::new(OverlayModeState::new(config.startup));
         let active_auto_algorithm = Arc::new(AtomicI32::new(if config.target_fps.is_some() {
             0
         } else {
@@ -782,7 +777,7 @@ pub unsafe extern "system" fn vkCreateDevice(
                 .collect::<Vec<_>>(),
         );
         if config.input_enabled {
-            diagnostics::info("starting global hotkey listener using X11/XWayland");
+            diagnostics::info("registering device with process-wide X11/XWayland hotkey listener");
         } else {
             diagnostics::info("global hotkeys disabled by configuration");
         }
@@ -793,7 +788,7 @@ pub unsafe extern "system" fn vkCreateDevice(
             config.hotkey_down,
             config.hotkey_toggle,
             Arc::clone(&frame_cap),
-            Arc::clone(&overlay_visible),
+            Arc::clone(&overlay_mode),
             Arc::clone(&active_auto_algorithm),
             Arc::clone(&auto_hysteresis_percent),
             config.manual_step_fps,
@@ -842,10 +837,6 @@ pub unsafe extern "system" fn vkCreateDevice(
                 minimum_metrics_collection_interval: Duration::from_millis(config.gpu_poll_rate_ms),
                 overlay_refresh_rate: config.refresh_rate,
                 scale_2x_min_width_px: config.scale_2x_min_width_px,
-                jitter_graph_startup: config.jitter_graph_startup != 0,
-                jitter_graph_width_px: config.jitter_graph_width_px,
-                jitter_graph_height_px: config.jitter_graph_height_px,
-                jitter_graph_window: Duration::from_millis(config.jitter_graph_window_ms),
                 overlay_background_opacity: config.overlay_background_opacity,
                 auto_regulator: AutoRegulator::new(
                     config.auto_algorithms.clone(),
@@ -858,7 +849,7 @@ pub unsafe extern "system" fn vkCreateDevice(
                 )),
                 queue_families: HashMap::new(),
                 frame_cap,
-                overlay_visible,
+                overlay_mode,
                 active_auto_algorithm,
                 auto_hysteresis_percent,
                 hotkey_config: [
@@ -902,10 +893,6 @@ pub unsafe extern "system" fn vkCreateSwapchainKHR(
         minimum_metrics_collection_interval,
         overlay_refresh_rate,
         scale_2x_min_width_px,
-        jitter_graph_startup,
-        jitter_graph_width_px,
-        jitter_graph_height_px,
-        jitter_graph_window,
         overlay_background_opacity,
     ) = {
         let state = state.lock();
@@ -916,10 +903,6 @@ pub unsafe extern "system" fn vkCreateSwapchainKHR(
             state.minimum_metrics_collection_interval,
             state.overlay_refresh_rate,
             state.scale_2x_min_width_px,
-            state.jitter_graph_startup,
-            state.jitter_graph_width_px,
-            state.jitter_graph_height_px,
-            state.jitter_graph_window,
             state.overlay_background_opacity,
         )
     };
@@ -997,10 +980,6 @@ pub unsafe extern "system" fn vkCreateSwapchainKHR(
         &images,
         fps_smoothing_window,
         minimum_metrics_collection_interval,
-        jitter_graph_startup,
-        jitter_graph_width_px,
-        jitter_graph_height_px,
-        jitter_graph_window,
         overlay_refresh_rate,
         overlay_background_opacity,
         scale_2x_min_width_px,
@@ -1202,12 +1181,14 @@ pub unsafe extern "system" fn vkQueuePresentKHR(
         let auto_algorithm_index = (active_mode > 0).then_some((active_mode - 1) as usize);
         let auto_algorithm_label =
             auto_algorithm_index.and_then(|index| state.auto_regulator.overlay_label(index));
+        let auto_target =
+            auto_algorithm_index.and_then(|index| state.auto_regulator.overlay_target(index));
         let mut target_fps = state.frame_cap.target_fps();
         let hysteresis_percent = auto_algorithm_index
             .and_then(|index| state.auto_hysteresis_percent.get(index))
             .map(|value| f32::from_bits(value.load(Ordering::Relaxed)));
         let frame_cap = Arc::clone(&state.frame_cap);
-        let overlay_visible = state.overlay_visible.load(Ordering::Relaxed);
+        let overlay_mode = state.overlay_mode.mode();
         for (&swapchain, &image_index) in swapchains.iter().zip(image_indices) {
             let Some((metrics, displayed_metrics)) = state
                 .swapchains
@@ -1245,7 +1226,7 @@ pub unsafe extern "system" fn vkQueuePresentKHR(
                     cap_generation = state.frame_cap.generation();
                 }
             }
-            if overlay_visible {
+            if overlay_mode != OverlayMode::Off {
                 let hotkey_config = state.hotkey_config;
                 let manual_step_fps = state.manual_step_fps;
                 let feedback = state.overlay_feedback.current(Instant::now());
@@ -1257,10 +1238,12 @@ pub unsafe extern "system" fn vkQueuePresentKHR(
                     queue_family,
                     image_index,
                     &displayed_metrics,
+                    overlay_mode,
                     target_fps,
                     auto_algorithm_index,
                     auto_algorithm_label,
                     hysteresis_percent,
+                    auto_target,
                     hotkey_config,
                     manual_step_fps,
                     feedback,

@@ -15,9 +15,11 @@ measurement expiry. Supported metric/target pairs are:
 - `vrm_temp`: `gpu_vrm_temp_c` / a positive numerical temperature in °C.
 - `fan_rpm`: `fan_rpm` / a positive numerical fan speed in RPM.
 
-Invalid combinations revert to the built-in pair for that algorithm. Common
-`gpu_increase_limit`, `gpu_decrease_limit`, and `frame_jitter_limit` apply only
-to `gpu_threshold`. The shipped example may differ from the built-in defaults.
+Invalid combinations revert to the built-in pair for that algorithm.
+`gpu_increase_limit`, `gpu_decrease_limit`, and `frame_jitter_limit` are
+configured in `[auto-mode.algorithms.gpu_threshold]`; they only affect the
+`gpu_threshold` algorithm. The shipped example may differ from the built-in
+defaults.
 
 A positive `[framecap].target_fps` starts in manual mode; zero starts OFF. F9
 cycles manual through the configured algorithms and OFF, then restores the
@@ -69,8 +71,9 @@ Let `margin = current_cap * hysteresis_percent / 100`:
 3. Otherwise, leave the cap unchanged.
 
 GPU load must be `Available`, finite, in 0–100%, and no older than the
-algorithm's expiry. The independent GPU thresholds default to 98% and 90%;
-the jitter threshold defaults to 2 ms and accepts 0–500 ms.
+algorithm's expiry. `gpu_increase_limit` and `gpu_decrease_limit` default to
+98% and 90% and accept 0–100%; `frame_jitter_limit` defaults to 2 ms and
+accepts 0–500 ms.
 
 ### `vrm_temp` (`VRM`)
 

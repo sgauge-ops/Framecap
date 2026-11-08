@@ -5,9 +5,6 @@ use std::time::Duration;
 
 pub const DEFAULT_TARGET_FPS: f32 = 60.0;
 pub const DEFAULT_GPU_SMOOTHING_WINDOW_MS: u64 = 1000;
-pub const DEFAULT_JITTER_GRAPH_WIDTH_PX: u32 = 100;
-pub const DEFAULT_JITTER_GRAPH_HEIGHT_PX: u32 = 10;
-pub const DEFAULT_JITTER_GRAPH_WINDOW_MS: u64 = 3000;
 pub const DEFAULT_OVERLAY_BACKGROUND_OPACITY: f32 = 0.25;
 pub const MIN_TARGET_FPS: f32 = 1.0;
 pub const MAX_TARGET_FPS: f32 = 240.0;
@@ -110,10 +107,6 @@ pub struct Config {
     pub gpu_smoothing_window_ms: u64,
     pub refresh_rate: u64,
     pub scale_2x_min_width_px: u32,
-    pub jitter_graph_startup: u8,
-    pub jitter_graph_width_px: u32,
-    pub jitter_graph_height_px: u32,
-    pub jitter_graph_window_ms: u64,
     pub overlay_background_opacity: f32,
     pub startup: u8,
     pub auto_algorithms: Vec<AutoAlgorithmConfig>,
@@ -185,50 +178,30 @@ impl Config {
             }
         };
         let scale_2x_min_width_px =
-            positive_u32_or_default(overlay.scale_2x_min_width_px, "scale_2x_min_width_px", 3840);
+            positive_u32_or_default(overlay.scale_2x_min_width_px, "scale_2x_min_width_px", 3440);
+        let gpu_threshold_settings = auto
+            .algorithms
+            .iter()
+            .find_map(|algorithm| algorithm.gpu_threshold.clone())
+            .unwrap_or_default();
         let auto_algorithms = validated_auto_algorithms(auto.algorithms);
         let gpu_expiry_ms = auto_algorithms
             .iter()
             .map(|algorithm| algorithm.measurement_expiry.as_millis() as u64)
             .max()
             .unwrap_or(1000);
-        let (gpu_increase_limit, gpu_decrease_limit) =
-            validated_gpu_thresholds(auto.gpu_increase_limit, auto.gpu_decrease_limit);
+        let (gpu_increase_limit, gpu_decrease_limit) = validated_gpu_thresholds(
+            gpu_threshold_settings.gpu_increase_limit,
+            gpu_threshold_settings.gpu_decrease_limit,
+        );
         let frame_jitter_limit_ms = bounded_finite_or_default(
-            auto.frame_jitter_limit,
+            gpu_threshold_settings.frame_jitter_limit,
             "frame_jitter_limit",
-            "auto-mode",
+            "auto-mode.algorithms.gpu_threshold",
             0.0,
             500.0,
             DEFAULT_FRAME_JITTER_LIMIT_MS,
         );
-        let jitter_graph_startup = positive_u8(
-            overlay.jitter_graph_startup,
-            "jitter_graph_startup",
-            0..=1,
-            0,
-        );
-        let jitter_graph_width_px = graph_dimension(
-            overlay.jitter_graph_width_px,
-            "jitter_graph_width_px",
-            "overlay",
-            DEFAULT_JITTER_GRAPH_WIDTH_PX,
-        );
-        let jitter_graph_height_px = graph_dimension(
-            overlay.jitter_graph_height_px,
-            "jitter_graph_height_px",
-            "overlay",
-            DEFAULT_JITTER_GRAPH_HEIGHT_PX,
-        );
-        let jitter_graph_window_ms = match positive_milliseconds(overlay.jitter_graph_window_ms) {
-            Ok(window_ms) => window_ms,
-            Err(reason) => {
-                diagnostics::error(format!(
-                    "Invalid [overlay].jitter_graph_window_ms: {reason}; using 3000 ms"
-                ));
-                3000
-            }
-        };
         let background_opacity = bounded_finite_or_default(
             overlay.background_opacity,
             "background_opacity",
@@ -237,7 +210,7 @@ impl Config {
             1.0,
             DEFAULT_OVERLAY_BACKGROUND_OPACITY,
         );
-        let startup = positive_u8(overlay.startup, "startup", 0..=1, 1);
+        let startup = positive_u8(overlay.startup, "startup", 0..=2, 2);
 
         let manual_step_fps = positive_finite_or_default(
             manual.manual_step_fps,
@@ -260,10 +233,6 @@ impl Config {
             gpu_increase_limit,
             gpu_decrease_limit,
             frame_jitter_limit_ms,
-            jitter_graph_startup,
-            jitter_graph_width_px,
-            jitter_graph_height_px,
-            jitter_graph_window_ms,
             overlay_background_opacity: background_opacity,
             startup,
             manual_step_fps,
@@ -304,9 +273,18 @@ mod scale_threshold_tests {
     #[test]
     fn zero_scale_threshold_uses_the_default() {
         assert_eq!(
-            positive_u32_or_default(0, "scale_2x_min_width_px", 3840),
-            3840
+            positive_u32_or_default(0, "scale_2x_min_width_px", 3440),
+            3440
         );
+    }
+
+    #[test]
+    fn overlay_startup_accepts_three_modes_and_defaults_to_full() {
+        assert_eq!(settings::Settings::default().overlay.startup, 2);
+        for value in 0..=2 {
+            assert_eq!(positive_u8(value, "startup", 0..=2, 2), value);
+        }
+        assert_eq!(positive_u8(3, "startup", 0..=2, 2), 2);
     }
 }
 
@@ -320,7 +298,7 @@ fn validated_gpu_thresholds(increase: f32, decrease: f32) -> (f32, f32) {
         (increase, decrease)
     } else {
         diagnostics::error(format!(
-            "Invalid [auto-mode] GPU thresholds: expected gpu_increase_limit and gpu_decrease_limit to be finite percentages from 0 to 100; using {DEFAULT_GPU_INCREASE_LIMIT} and {DEFAULT_GPU_DECREASE_LIMIT}"
+            "Invalid [auto-mode.algorithms.gpu_threshold] GPU thresholds: expected gpu_increase_limit and gpu_decrease_limit to be finite percentages from 0 to 100; using {DEFAULT_GPU_INCREASE_LIMIT} and {DEFAULT_GPU_DECREASE_LIMIT}"
         ));
         (DEFAULT_GPU_INCREASE_LIMIT, DEFAULT_GPU_DECREASE_LIMIT)
     }
@@ -593,19 +571,6 @@ fn validated_fps_bounds(minimum: f32, maximum: f32, section: &str) -> (f32, f32)
     }
 }
 
-/// Validates a positive graph dimension and substitutes its default if needed.
-pub fn graph_dimension(value: u32, name: &str, section: &str, default: u32) -> u32 {
-    if value > 0 {
-        value
-    } else {
-        diagnostics::error(format!(
-            "Invalid [{}].{name}: expected a positive integer; using {}",
-            section, default
-        ));
-        default
-    }
-}
-
 /// Validates a finite non-negative float and substitutes its default if needed.
 pub fn non_negative_finite(value: f32, name: &str, section: &str, default: f32) -> f32 {
     if value.is_finite() && value >= 0.0 {
@@ -664,6 +629,9 @@ mod tests {
             config.auto_algorithms[0].increase_interval,
             Duration::from_millis(4000)
         );
+        assert_eq!(config.gpu_increase_limit, 98.0);
+        assert_eq!(config.gpu_decrease_limit, 90.0);
+        assert_eq!(config.frame_jitter_limit_ms, 2.0);
         assert_eq!(config.auto_algorithms[1].name, "vrm_temp");
         assert_eq!(config.auto_algorithms[1].metric, AutoMetric::GpuVrmTempC);
         assert_eq!(config.auto_algorithms[1].target, AutoTarget::Value(100.0));
@@ -688,6 +656,14 @@ mod tests {
     }
 
     #[test]
+    fn gpu_threshold_limits_load_from_the_algorithm_section() {
+        let config = Config::load();
+        assert_eq!(config.gpu_increase_limit, 98.0);
+        assert_eq!(config.gpu_decrease_limit, 90.0);
+        assert_eq!(config.frame_jitter_limit_ms, 2.0);
+    }
+
+    #[test]
     /// Checks that GPU thresholds are independently bounded percentages.
     fn gpu_thresholds_are_independent_bounded_percentages() {
         assert_eq!(validated_gpu_thresholds(85.0, 97.0), (85.0, 97.0));
@@ -702,7 +678,14 @@ mod tests {
         use super::{bounded_finite_or_default, DEFAULT_FRAME_JITTER_LIMIT_MS};
 
         let validate = |value| {
-            bounded_finite_or_default(value, "frame_jitter_limit", "auto-mode", 0.0, 500.0, 2.0)
+            bounded_finite_or_default(
+                value,
+                "frame_jitter_limit",
+                "auto-mode.algorithms.gpu_threshold",
+                0.0,
+                500.0,
+                2.0,
+            )
         };
         assert_eq!(validate(0.0), 0.0);
         assert_eq!(validate(500.0), 500.0);
