@@ -7,6 +7,8 @@
   troubleshooting, and removal.
 - [Configuration](documentation/CONFIGURATION.md): file lookup, options,
   shortcuts, diagnostics, and hardware sensors.
+- [Troubleshooting](documentation/TROUBLESHOOTING.md): missing overlays,
+  crashes, and Framecap, Proton, and Vulkan loader logs.
 - [Contributing](CONTRIBUTING.md): development and validation instructions.
 
 ## Technical reference

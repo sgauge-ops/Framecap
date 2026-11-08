@@ -20,7 +20,9 @@ Framecap's overlay can be disabled via [F12]. Background logic (mode dependent) 
 
 Framecap's behavior is largely configurable in `framecap.toml`
 
-# Download and build
+# Short installation guide
+
+## Download and build
 
 ```sh
 git clone https://github.com/sgauge-ops/Framecap.git "$HOME/bc250-framecap" ;
@@ -28,27 +30,29 @@ cd "$HOME/bc250-framecap" ;
 cargo build --locked 
 ```
 
-# Configure
+## Configure
 
 Edit `$HOME/bc250-framecap/framecap.toml` for your machine. To make this
 configuration available to games launched from other directories, create a
 symbolic link in the configuration directory searched by Framecap:
 
 ```sh
-CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}" ;
-mkdir -p "$CONFIG_DIR" ;
-ln -sT "$HOME/bc250-framecap/framecap.toml" "$CONFIG_DIR/framecap.toml" ;
+mkdir -p "$HOME/.config" ;
+ln -sT "$HOME/bc250-framecap/framecap.toml" "$HOME/.config/framecap.toml"
 ```
 
-# Test with vkcube
+## Test with vkcube
 
-From the installed source directory, with a graphical session and `vkcube`:
+From your home directory, with a graphical session and `vkcube` available:
 
 ```sh
-cd ~/ ; VK_LAYER_PATH="$HOME/bc250-framecap/layer" VK_INSTANCE_LAYERS=VK_LAYER_FRAMECAP_observability vkcube --c 300
+cd ~/ ;
+VK_LAYER_PATH="$HOME/bc250-framecap/layer" VK_INSTANCE_LAYERS=VK_LAYER_FRAMECAP_observability vkcube --c 300
 ```
 
-# Activate for a Steam game
+Framecap should show-up
+
+## Activate for a Steam game
 
 Under **Properties > General > Launch Options**, add:
 
@@ -59,11 +63,19 @@ VK_LAYER_PATH="$HOME/bc250-framecap/layer" VK_INSTANCE_LAYERS=VK_LAYER_FRAMECAP_
 Steam replaces `%command%` with the game command. This activates the layer for
 that game, not globally. Remove the launch options to disable it.
 
+## Update and rebuild
+
+```sh
+cd "$HOME/bc250-framecap" ;
+git pull ;
+cargo build --locked 
+```
+
 # Going further
 
 - [Documentation index](INDEX.md)
 - [Installation and Steam setup](documentation/INSTALL.md)
 - [Configuration and keyboard shortcuts](documentation/CONFIGURATION.md)
+- [Troubleshooting and logs](documentation/TROUBLESHOOTING.md)
 - [Known limitations and pending work](TODO.md)
 - [Changelog](CHANGELOG.md)
-

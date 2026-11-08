@@ -86,6 +86,8 @@ On systems with multiple display backends, `vkcube --wsi wayland` or
 [diagnostics](CONFIGURATION.md#diagnostics) for paths and troubleshooting.
 For Proton, `PROTON_LOG=1 PROTON_LOG_DIR=/tmp` may provide additional context.
 Review logs for private paths before sharing them.
+For missing overlays, crashes, and instructions to collect Framecap and Proton
+logs, see [troubleshooting](TROUBLESHOOTING.md).
 
 For automated checks, run `cargo build --locked && cargo test --locked`. The
 `vkcube` integration test may skip when graphical prerequisites are absent.
