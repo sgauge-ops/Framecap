@@ -676,7 +676,14 @@ mod tests {
         assert_eq!(config.auto_algorithms[2].target, AutoTarget::Value(2000.0));
         assert_eq!(
             config.auto_algorithms[2].increase_interval,
-            Duration::from_millis(10000)
+            Duration::from_millis(5000)
+        );
+        assert_eq!(
+            crate::layer::settings::Settings::default()
+                .auto_mode
+                .algorithms[2]
+                .auto_increase_interval_ms,
+            10000
         );
     }
 

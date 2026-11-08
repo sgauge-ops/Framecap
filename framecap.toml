@@ -1,4 +1,4 @@
-# This file must be copied to the "~/.config/" folder
+# See documentation/INSTALL.md for using this file from the installation directory.
 # Invalid TOML or unknown keys cause the full file to fall back to built-in defaults.
 
 [framecap]
@@ -26,7 +26,7 @@ ppt_power_path = "/sys/class/hwmon/hwmon1/power1"
 fan_rpm_path = "/sys/class/hwmon/hwmon3/fan2"
 
 [overlay]
-startup = 1                         # Affiche l'overlay au démarrage. 1 pour oui, 0 pour non. Défaut : 1.
+startup = 1                         # Show the overlay at startup: 1 enables it, 0 disables it. Built-in default: 1.
 background_opacity = 0.25           # Overlay background opacity. Built-in default: 0.25; 0.0 is fully transparent and 1.0 fully opaque; valid range: 0.0-1.0; invalid values use the default.
 refresh_rate = 25                   # Redraw the overlay every frame; refresh its displayed metrics and jitter graph every N presents.
 gpu_smoothing_window_ms = 1000      # Rolling time window for FPS, 10% low, jitter, GPU load, and hardware sensor readings. Built-in default: 1000 ms; must be positive; invalid values use the default.
