@@ -50,7 +50,9 @@ cd ~/ ;
 VK_LAYER_PATH="$HOME/bc250-framecap/layer" VK_INSTANCE_LAYERS=VK_LAYER_FRAMECAP_observability vkcube --c 300
 ```
 
-Framecap should show-up
+Framecap should show-up :
+
+![vkcube](documentation/vkcube%20overlay.png)
 
 ## Activate for a Steam game
 
