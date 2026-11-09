@@ -6,16 +6,14 @@ use std::path::PathBuf;
 
 #[derive(Clone, Debug)]
 pub struct FramecapSettings {
-    pub target_fps: f32,
     pub window_size: usize,
     pub gpu_poll_rate_ms: u64,
 }
 
 impl Default for FramecapSettings {
-    /// Returns the built-in frame cap, sample window, and GPU polling defaults.
+    /// Returns the built-in sample window and GPU polling defaults.
     fn default() -> Self {
         Self {
-            target_fps: 60.0,
             window_size: 60,
             gpu_poll_rate_ms: 100,
         }
@@ -36,10 +34,10 @@ impl Default for KeyBindingsSettings {
     fn default() -> Self {
         Self {
             input_enabled: true,
-            hotkey_auto: "F9".to_owned(),
-            hotkey_up: "F11".to_owned(),
-            hotkey_down: "F10".to_owned(),
-            hotkey_toggle: "F12".to_owned(),
+            hotkey_auto: "F5".to_owned(),
+            hotkey_up: "F7".to_owned(),
+            hotkey_down: "F6".to_owned(),
+            hotkey_toggle: "F8".to_owned(),
         }
     }
 }
@@ -174,6 +172,7 @@ impl Default for AutoModeSettings {
 
 #[derive(Clone, Debug)]
 pub struct ManualModeSettings {
+    pub startup_fps: f32,
     pub manual_step_fps: f32,
     pub manual_min_fps: f32,
     pub manual_max_fps: f32,
@@ -183,6 +182,7 @@ impl Default for ManualModeSettings {
     /// Returns the built-in manual-regulation defaults.
     fn default() -> Self {
         Self {
+            startup_fps: 60.0,
             manual_step_fps: 5.0,
             manual_min_fps: 1.0,
             manual_max_fps: 240.0,
@@ -358,6 +358,7 @@ enum RawAutoTarget {
 #[derive(Deserialize, Default)]
 #[serde(default, deny_unknown_fields)]
 struct RawManualModeSettings {
+    startup_fps: Option<f32>,
     #[serde(rename = "step_fps")]
     manual_step_fps: Option<f32>,
     #[serde(rename = "min_fps")]
@@ -422,10 +423,14 @@ impl Settings {
         } = raw;
         let defaults = Self::default();
         let append_log = diagnostics_append_log(diagnostics.append_log);
+        let startup_fps = resolve_startup_fps(
+            manual_mode.startup_fps,
+            framecap.target_fps,
+            defaults.manual_mode.startup_fps,
+        );
 
         let settings = Self {
             framecap: FramecapSettings {
-                target_fps: framecap.target_fps.unwrap_or(defaults.framecap.target_fps),
                 window_size: framecap
                     .window_size
                     .unwrap_or(defaults.framecap.window_size),
@@ -491,6 +496,7 @@ impl Settings {
                 ),
             },
             manual_mode: ManualModeSettings {
+                startup_fps,
                 manual_step_fps: manual_mode
                     .manual_step_fps
                     .or(framecap.manual_step_fps)
@@ -517,7 +523,8 @@ impl Settings {
 
 /// Reports whether the legacy `[framecap]` section contains moved settings.
 fn has_legacy_settings(framecap: &RawFramecapSettings) -> bool {
-    framecap.jitter_high.is_some()
+    framecap.target_fps.is_some()
+        || framecap.jitter_high.is_some()
         || framecap.jitter_low.is_some()
         || framecap.gpu_saturation.is_some()
         || framecap.input_enabled.is_some()
@@ -531,6 +538,15 @@ fn has_legacy_settings(framecap: &RawFramecapSettings) -> bool {
         || framecap.manual_step_fps.is_some()
         || framecap.manual_min_fps.is_some()
         || framecap.manual_max_fps.is_some()
+}
+
+fn resolve_startup_fps(startup: Option<f32>, legacy: Option<f32>, default: f32) -> f32 {
+    if startup.is_some() && legacy.is_some() {
+        eprintln!(
+            "Framecap: both [manual-mode].startup_fps and legacy [framecap].target_fps are set; using [manual-mode].startup_fps"
+        );
+    }
+    startup.or(legacy).unwrap_or(default)
 }
 
 fn parse_auto_algorithms(
@@ -672,6 +688,53 @@ fn diagnostics_append_log(append_log: Option<u8>) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn default_and_shipped_shortcuts_use_f5_through_f8() {
+        let defaults = Settings::default().key_bindings;
+        assert_eq!(
+            [
+                defaults.hotkey_auto.as_str(),
+                defaults.hotkey_down.as_str(),
+                defaults.hotkey_up.as_str(),
+                defaults.hotkey_toggle.as_str()
+            ],
+            ["F5", "F6", "F7", "F8"]
+        );
+        let raw: RawSettings = toml::from_str(include_str!("../../framecap.toml")).unwrap();
+        assert_eq!(raw.key_bindings.hotkey_auto.as_deref(), Some("F5"));
+        assert_eq!(raw.key_bindings.hotkey_down.as_deref(), Some("F6"));
+        assert_eq!(raw.key_bindings.hotkey_up.as_deref(), Some("F7"));
+        assert_eq!(raw.key_bindings.hotkey_toggle.as_deref(), Some("F8"));
+    }
+
+    #[test]
+    fn startup_fps_uses_manual_section_and_preserves_legacy_configuration() {
+        let defaults = Settings::default();
+        assert_eq!(defaults.manual_mode.startup_fps, 60.0);
+        for (text, expected, legacy_expected) in [
+            ("", 60.0, false),
+            ("[manual-mode]\nstartup_fps = 0", 0.0, false),
+            ("[manual-mode]\nstartup_fps = 75", 75.0, false),
+            ("[framecap]\ntarget_fps = 90", 90.0, true),
+            (
+                "[framecap]\ntarget_fps = 90\n[manual-mode]\nstartup_fps = 45",
+                45.0,
+                true,
+            ),
+        ] {
+            let raw: RawSettings = toml::from_str(text).unwrap();
+            assert_eq!(has_legacy_settings(&raw.framecap), legacy_expected);
+            assert_eq!(
+                resolve_startup_fps(
+                    raw.manual_mode.startup_fps,
+                    raw.framecap.target_fps,
+                    defaults.manual_mode.startup_fps,
+                ),
+                expected
+            );
+        }
+    }
 
     #[test]
     fn overlay_renderer_is_opt_in_and_rejects_unknown_values() {
@@ -901,6 +964,8 @@ mod tests {
     fn shipped_configuration_parses_gpu_and_jitter_thresholds() {
         let settings: RawSettings = toml::from_str(include_str!("../../framecap.toml")).unwrap();
         assert_eq!(settings.overlay.renderer, Some(OverlayRenderer::Modern));
+        assert_eq!(settings.manual_mode.startup_fps, Some(90.0));
+        assert_eq!(settings.framecap.target_fps, None);
         let gpu_threshold = settings
             .auto_mode
             .algorithms

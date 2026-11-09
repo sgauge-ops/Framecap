@@ -30,10 +30,10 @@ The ascii overlay presents:
          GPU:   43 °C     | VRM:   57 °C     | Load:   55 %     | PPT:  32.6 W
          CPU:   70 °C     | VRM:   61 °C     | Load:   35 %     | RPM:  1240 RPM
 -----------------------------------------------------------------
-         [F9] CYCLE MODE  | [F10]  -1 FPS    | [F11]  +1 FPS    | [F12] CYCLE OSD
+         [F5] CYCLE MODE  | [F6]  -1 FPS     | [F7]  +1 FPS     | [F8] CYCLE OSD
 ```
 
-On release, a short press of F12 cycles full overlay → FPS only → off → full
+On release, a short press of F8 cycles full overlay → FPS only → off → full
 overlay; holding it for one second switches between `modern` and `ascii`
 without waiting for release or changing the display mode. The same applies to
 a custom `[key-bindings].hotkey_toggle`. The renderer switch is temporary and
@@ -49,8 +49,8 @@ from 0 to 255, for example `[255, 255, 0]`. Other text keeps its usual colors.
 An invalid RGB array rejects the configuration file, as with other invalid TOML
 types.
 
-Columns are aligned across lines: F10/CAP/10% LOW/VRM, F11/HYS/JIT/Load,
-and F12/TARGET/PPT/RPM. In the full overlay, FPS is shown as `FPS: value`;
+Columns are aligned across lines: F6/CAP/10% LOW/VRM, F7/HYS/JIT/Load,
+and F8/TARGET/PPT/RPM. In the full overlay, FPS is shown as `FPS: value`;
 while collecting, both FPS and 10% LOW show `COLLECT`. In AUTO, TARGET shows
 the selected algorithm's reference: the displayed 10% low in FPS for JIT,
 the configured temperature in °C for VRM, or the configured speed in RPM for

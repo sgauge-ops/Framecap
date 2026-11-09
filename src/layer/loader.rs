@@ -748,7 +748,7 @@ pub unsafe extern "system" fn vkCreateDevice(
             .collect::<Vec<_>>()
             .join(",");
         diagnostics::info(format!(
-            "configuration: target_fps={} input_enabled={} hotkeys=auto:{:?},down:{:?},up:{:?},toggle:{:?} overlay_startup={} overlay_renderer={:?} auto_algorithms=[{}] gpu_increase_limit={} gpu_decrease_limit={} frame_jitter_limit_ms={} manual_step_fps={} manual_bounds={}..{} gpu_poll_rate_ms={} overlay_refresh_rate={} gpu_expiry_ms={} gpu_smoothing_window_ms={} background_opacity={} fps_color={:?} window_size={}",
+            "configuration: startup_fps={} input_enabled={} hotkeys=auto:{:?},down:{:?},up:{:?},toggle:{:?} overlay_startup={} overlay_renderer={:?} auto_algorithms=[{}] gpu_increase_limit={} gpu_decrease_limit={} frame_jitter_limit_ms={} manual_step_fps={} manual_bounds={}..{} gpu_poll_rate_ms={} overlay_refresh_rate={} gpu_expiry_ms={} gpu_smoothing_window_ms={} background_opacity={} fps_color={:?} window_size={}",
             config.target_fps.map_or_else(|| "OFF".to_owned(), |fps| fps.to_string()),
             config.input_enabled,
             config.hotkey_auto,

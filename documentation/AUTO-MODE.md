@@ -21,11 +21,11 @@ configured in `[auto-mode.algorithms.gpu_threshold]`; they only affect the
 `gpu_threshold` algorithm. The shipped example may differ from the built-in
 defaults.
 
-A positive `[framecap].target_fps` starts in manual mode; zero starts OFF. F9
+A valid positive `[manual-mode].startup_fps` starts in manual mode; zero starts OFF. F5
 cycles manual through the configured algorithms and OFF, then restores the
 last cap in manual mode. By default the order is JIT, VRM, FAN. The overlay
 shows the name `AUTO (JIT)`, `AUTO (VRM)`, or `AUTO (FAN)` independently of
-order. In automatic mode F10/F11 decrease/increase active hysteresis by
+order. In automatic mode F6/F7 decrease/increase active hysteresis by
 1 FPS, 1 °C or 10 RPM, respectively; in manual mode they change the cap by
 `[manual-mode].step_fps`. They do not change a parameter in OFF. Global
 shortcuts require X11/XWayland.
@@ -127,5 +127,5 @@ Because unknown keys reject the entire configuration file, update all copies
 of `framecap.toml` used by the application before testing.
 
 Tests should cover all rules, inclusive neutral bands, unavailable and stale
-measurements, GPU and jitter gates, F9 and hysteresis controls, persistent
+measurements, GPU and jitter gates, F5 and hysteresis controls, persistent
 direction confirmation, bounds, TOML configuration, and overlay labels.

@@ -8,6 +8,8 @@ changes, not necessarily when development originally took place.
 
 | Date | Changes |
 | --- | --- |
+| 2026-11-09 | Changed global shortcut keys from F9–F12 to F5–F8 to avoid Steam conflicts. Existing explicit key bindings must be updated; invalid or duplicate bindings disable global shortcuts. |
+| 2026-11-09 | Moved the initial cap to `[manual-mode].startup_fps`; the legacy `[framecap].target_fps` remains readable with a migration warning and the new key takes precedence. |
 | 2026-11-09 | Changed all AUTO algorithms to per-algorithm rolling measurement windows and persistent direction confirmation, retaining history across cap changes. `auto_window_ms` defaults to 4000 ms and also sets the minimum interval between adjustments. |
 | 2026-11-09 | Replaced AUTO percentage hysteresis with absolute `hysteresis`: defaults are 5 FPS (JIT), 5 °C (VRM), and 50 RPM (FAN); F10/F11 adjust by 1 FPS, 1 °C, and 10 RPM respectively. |
 | 2026-11-09 | Removed `hysteresis_percent`, `auto_increase_interval_ms`, `auto_decrease_interval_ms`, and `measurement_expiry_ms` from AUTO configuration. Existing configuration files must be migrated; unknown keys reject the entire file. |

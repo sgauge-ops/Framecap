@@ -2,16 +2,15 @@
 # Invalid TOML or unknown keys cause the full file to fall back to built-in defaults.
 
 [framecap]
-target_fps = 90         # Initial FPS target; 0 starts with the limiter disabled. Built-in default: 60 FPS; valid range: 0 or 1-240; invalid values disable the cap.
 window_size = 60        # Metrics aggregator window size. Built-in default: 60 samples; valid range: 1-4096; invalid values use the default.
 gpu_poll_rate_ms = 200  # GPU telemetry polling and AUTO evaluation interval; also the minimum collection time at startup or after a CAP change before FPS, 10% low, and jitter become available. Built-in default: 100 ms; valid range: 10-1000 ms; invalid values use the default.
 
 [key-bindings]
 input_enabled = true    # Enable global function-key shortcuts. Built-in default: true; shortcuts require X11/XWayland; invalid TOML types reject the file.
-hotkey_auto = "F9"      # Cycle manual -> automatic -> off. Built-in default: F9; valid keys: F9-F12; invalid or duplicate keys disable all shortcuts.
-hotkey_down = "F10"     # Decrease the manual cap or AUTO hysteresis. Built-in default: F10; valid keys: F9-F12; invalid or duplicate keys disable all shortcuts.
-hotkey_up = "F11"       # Increase the manual cap or AUTO hysteresis. Built-in default: F11; valid keys: F9-F12; invalid or duplicate keys disable all shortcuts.
-hotkey_toggle = "F12"   # Short press cycles full -> FPS only -> off; hold for 1 second to switch renderer before release. Built-in default: F12; valid keys: F9-F12; invalid or duplicate keys disable all shortcuts.
+hotkey_auto = "F5"      # Cycle manual -> automatic -> off. Built-in default: F5; valid keys: F5-F8; invalid or duplicate keys disable all shortcuts.
+hotkey_down = "F6"     # Decrease the manual cap or AUTO hysteresis. Built-in default: F6; valid keys: F5-F8; invalid or duplicate keys disable all shortcuts.
+hotkey_up = "F7"       # Increase the manual cap or AUTO hysteresis. Built-in default: F7; valid keys: F5-F8; invalid or duplicate keys disable all shortcuts.
+hotkey_toggle = "F8"   # Short press cycles full -> FPS only -> off; hold for 1 second to switch renderer before release. Built-in default: F8; valid keys: F5-F8; invalid or duplicate keys disable all shortcuts.
 
 [sensors]
 # Select hwmon sensors by device name and label rather than volatile hwmon indices.
@@ -34,8 +33,14 @@ scale_2x_min_width_px = 3840        # Minimum swapchain width for doubling overl
 # FPS, 10% low, and jitter use the same presentation samples and reset together on CAP changes.
 # They all show COLLECT until at least one valid interval is available and gpu_poll_rate_ms has elapsed from startup or the CAP change.
 
+[manual-mode]
+startup_fps = 90    # Initial FPS cap; 0 starts OFF. Built-in default: 60 FPS; valid range: 0 or 1-240; invalid values disable the cap.
+step_fps = 5.0      # Manual F6/F7 cap adjustment step. Built-in default: 5 FPS; must be finite and positive; invalid values use the default.
+min_fps = 5.0       # Manual target lower bound. Built-in default: 1 FPS; valid range: 1-240 and no greater than max_fps; invalid bounds use 1-240.
+max_fps = 240.0     # Manual target upper bound. Built-in default: 240 FPS; valid range: 1-240 and no less than min_fps; invalid bounds use 1-240.
+
 [auto-mode]
-# F9 cycles through the algorithms in this order.
+# F5 cycles through the algorithms in this order.
 # Replace old hysteresis_percent, auto_increase_interval_ms, auto_decrease_interval_ms,
 # and measurement_expiry_ms keys: unknown keys reject the entire configuration file.
 algorithm_order = ["gpu_threshold", "vrm_temp", "fan_rpm"]
@@ -72,11 +77,6 @@ auto_increase_step_fps = 5.0      # Cap increase per decision; built-in default:
 auto_decrease_step_fps = 5.0      # Cap decrease per decision; built-in default: 5 FPS; must be finite and positive.
 min_fps = 60.0                    # Algorithm cap bounds; built-in default: 1-240 FPS; valid range: 1-240 FPS.
 max_fps = 120.0
-
-[manual-mode]
-step_fps = 5.0      # Manual F10/F11 cap adjustment step. Built-in default: 5 FPS; must be finite and positive; invalid values use the default.
-min_fps = 5.0       # Manual target lower bound. Built-in default: 1 FPS; valid range: 1-240 and no greater than max_fps; invalid bounds use 1-240.
-max_fps = 240.0     # Manual target upper bound. Built-in default: 240 FPS; valid range: 1-240 and no less than min_fps; invalid bounds use 1-240.
 
 [diagnostics]
 log_path = "/tmp/framecap.log"      # Optional diagnostic log path. Built-in default: XDG_STATE_HOME or ~/.local/state/framecap/framecap.log; if the path cannot be opened, use stderr.

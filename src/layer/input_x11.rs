@@ -21,13 +21,22 @@ const LONG_PRESS: Duration = Duration::from_secs(1);
 const MODE_OFF: i32 = -1;
 const MODE_MANUAL: i32 = 0;
 const GRAB_MODE_ASYNC: c_int = 1;
-const XK_F9: c_ulong = 0xffc6;
-const XK_F10: c_ulong = 0xffc7;
-const XK_F11: c_ulong = 0xffc8;
-const XK_F12: c_ulong = 0xffc9;
+const XK_F5: c_ulong = 0xffc2;
+const XK_F6: c_ulong = 0xffc3;
+const XK_F7: c_ulong = 0xffc4;
+const XK_F8: c_ulong = 0xffc5;
 const XK_CAPS_LOCK: c_ulong = 0xffe5;
 const XK_NUM_LOCK: c_ulong = 0xff7f;
 const XK_SCROLL_LOCK: c_ulong = 0xff14;
+
+fn keysym(hotkey: Hotkey) -> c_ulong {
+    match hotkey {
+        Hotkey::F5 => XK_F5,
+        Hotkey::F6 => XK_F6,
+        Hotkey::F7 => XK_F7,
+        Hotkey::F8 => XK_F8,
+    }
+}
 
 #[repr(C)]
 struct Display {
@@ -139,13 +148,7 @@ impl X11 {
 
     /// Resolves a supported function key to its X11 keycode.
     fn keycode(&self, display: *mut Display, hotkey: Hotkey) -> u8 {
-        let keysym = match hotkey {
-            Hotkey::F9 => XK_F9,
-            Hotkey::F10 => XK_F10,
-            Hotkey::F11 => XK_F11,
-            Hotkey::F12 => XK_F12,
-        };
-        unsafe { (self.keysym_to_keycode)(display, keysym) }
+        unsafe { (self.keysym_to_keycode)(display, keysym(hotkey)) }
     }
 
     /// Enumerates modifier combinations for Caps, Num, and Scroll Lock states.
@@ -297,7 +300,7 @@ impl HotkeyWorker {
             let worker = thread::spawn(move || {
                 if let Err(error) = run_listener(worker_stop) {
                     diagnostics::warn(format!(
-                        "Framecap: F9/F10/F11/F12 X11 hotkeys unavailable: {error}"
+                        "Framecap: F5/F6/F7/F8 X11 hotkeys unavailable: {error}"
                     ));
                 }
             });
@@ -332,7 +335,7 @@ impl HotkeyWorker {
             listener.stop.store(true, Ordering::Relaxed);
             if listener.worker.join().is_err() {
                 diagnostics::error(
-                    "Framecap: F9/F10/F11/F12 hotkey listener thread terminated unexpectedly",
+                    "Framecap: F5/F6/F7/F8 hotkey listener thread terminated unexpectedly",
                 );
             }
         }
@@ -357,7 +360,7 @@ fn run_listener(stop: Arc<AtomicBool>) -> Result<(), String> {
     }
 
     let root = unsafe { (x11.default_root_window)(display) };
-    let hotkeys = [Hotkey::F9, Hotkey::F10, Hotkey::F11, Hotkey::F12];
+    let hotkeys = [Hotkey::F5, Hotkey::F6, Hotkey::F7, Hotkey::F8];
     let keycodes = hotkeys.map(|hotkey| x11.keycode(display, hotkey));
     if root == 0 {
         unsafe {
@@ -370,7 +373,7 @@ fn run_listener(stop: Arc<AtomicBool>) -> Result<(), String> {
             unsafe {
                 (x11.close_display)(display);
             }
-            return Err("X11 did not resolve F9/F10/F11/F12 keycodes".to_owned());
+            return Err("X11 did not resolve F5/F6/F7/F8 keycodes".to_owned());
         }
         Ok(masks) => masks,
         Err(error) => {
@@ -397,7 +400,7 @@ fn run_listener(stop: Arc<AtomicBool>) -> Result<(), String> {
         }
         (x11.flush)(display);
     }
-    diagnostics::info("Framecap: process-wide X11 hotkey listener active (F9/F10/F11/F12)");
+    diagnostics::info("Framecap: process-wide X11 hotkey listener active (F5/F6/F7/F8)");
 
     let mut pressed: [Option<PressedKey>; 4] = [None; 4];
     while !stop.load(Ordering::Relaxed) {
@@ -670,6 +673,14 @@ fn cycle_regulation_mode(
 #[cfg(all(test, target_pointer_width = "64"))]
 mod tests {
     use super::*;
+
+    #[test]
+    fn function_keys_resolve_to_f5_through_f8_x11_keysyms() {
+        assert_eq!(
+            [Hotkey::F5, Hotkey::F6, Hotkey::F7, Hotkey::F8].map(keysym),
+            [0xffc2, 0xffc3, 0xffc4, 0xffc5]
+        );
+    }
     use std::mem::size_of;
 
     #[test]
@@ -680,7 +691,35 @@ mod tests {
     }
 
     #[test]
-    fn f12_cycles_overlay_modes() {
+    fn default_hotkeys_dispatch_expected_actions() {
+        use crate::layer::renderer::OverlayMode;
+        use crate::layer::settings::OverlayRenderer;
+
+        let target = HotkeyTarget {
+            controller: Arc::new(FrameCapController::new(Some(60.0))),
+            overlay_mode: Arc::new(OverlayModeState::new(2)),
+            overlay_renderer: Arc::new(OverlayRendererState::new(OverlayRenderer::Modern)),
+            active_auto_algorithm: Arc::new(AtomicI32::new(0)),
+            auto_hysteresis: Arc::new(vec![AtomicU32::new(5.0_f32.to_bits())]),
+            auto_metrics: vec![AutoMetric::Fps],
+            manual_step_fps: 5.0,
+            overlay_feedback: Arc::new(OverlayFeedbackState::new()),
+            hotkeys: [Hotkey::F5, Hotkey::F7, Hotkey::F6, Hotkey::F8],
+        };
+        dispatch_to_target(&target, Hotkey::F6, HotkeyEvent::Press);
+        assert_eq!(target.controller.target_fps(), Some(55.0));
+        dispatch_to_target(&target, Hotkey::F7, HotkeyEvent::Press);
+        assert_eq!(target.controller.target_fps(), Some(60.0));
+        dispatch_to_target(&target, Hotkey::F5, HotkeyEvent::Press);
+        assert_eq!(target.active_auto_algorithm.load(Ordering::Relaxed), 1);
+        dispatch_to_target(&target, Hotkey::F8, HotkeyEvent::ShortRelease);
+        assert_eq!(target.overlay_mode.mode(), OverlayMode::Fps);
+        dispatch_to_target(&target, Hotkey::F8, HotkeyEvent::LongPress);
+        assert_eq!(target.overlay_renderer.current(), OverlayRenderer::Ascii);
+    }
+
+    #[test]
+    fn f8_cycles_overlay_modes() {
         use crate::layer::renderer::OverlayMode;
         let mode = OverlayModeState::new(2);
         assert_eq!(mode.mode(), OverlayMode::Full);
@@ -694,12 +733,12 @@ mod tests {
     #[test]
     /// Maps each physical function key to the configured action for that device.
     fn hotkey_dispatch_uses_each_devices_key_bindings() {
-        let hotkeys = [Hotkey::F10, Hotkey::F12, Hotkey::F9, Hotkey::F11];
+        let hotkeys = [Hotkey::F6, Hotkey::F8, Hotkey::F5, Hotkey::F7];
 
-        assert_eq!(configured_action(&hotkeys, Hotkey::F10), Some(0));
-        assert_eq!(configured_action(&hotkeys, Hotkey::F12), Some(1));
-        assert_eq!(configured_action(&hotkeys, Hotkey::F9), Some(2));
-        assert_eq!(configured_action(&hotkeys, Hotkey::F11), Some(3));
+        assert_eq!(configured_action(&hotkeys, Hotkey::F6), Some(0));
+        assert_eq!(configured_action(&hotkeys, Hotkey::F8), Some(1));
+        assert_eq!(configured_action(&hotkeys, Hotkey::F5), Some(2));
+        assert_eq!(configured_action(&hotkeys, Hotkey::F7), Some(3));
     }
 
     #[test]
@@ -719,7 +758,7 @@ mod tests {
             auto_metrics: vec![AutoMetric::FanRpm, AutoMetric::Fps, AutoMetric::GpuVrmTempC],
             manual_step_fps: 5.0,
             overlay_feedback: Arc::new(OverlayFeedbackState::new()),
-            hotkeys: [Hotkey::F9, Hotkey::F11, Hotkey::F10, Hotkey::F12],
+            hotkeys: [Hotkey::F5, Hotkey::F7, Hotkey::F6, Hotkey::F8],
         };
         for (index, expected) in [(0, 60.0), (1, 6.0), (2, 6.0)] {
             target
@@ -776,9 +815,9 @@ mod tests {
             auto_metrics: Vec::new(),
             manual_step_fps: 5.0,
             overlay_feedback: Arc::new(OverlayFeedbackState::new()),
-            hotkeys: [Hotkey::F10, Hotkey::F12, Hotkey::F9, Hotkey::F11],
+            hotkeys: [Hotkey::F6, Hotkey::F8, Hotkey::F5, Hotkey::F7],
         };
-        let dispatch = |event| dispatch_to_target(&target, Hotkey::F11, event);
+        let dispatch = |event| dispatch_to_target(&target, Hotkey::F7, event);
         let now = Instant::now();
         let mut key = PressedKey::new(100, now);
         dispatch(HotkeyEvent::Press);
@@ -801,7 +840,7 @@ mod tests {
                 .overlay_feedback
                 .current(std::time::Instant::now())
                 .hotkey,
-            Some(Hotkey::F11)
+            Some(Hotkey::F7)
         );
 
         dispatch(PressedKey::new(6000, now).release(6010).unwrap());
@@ -813,9 +852,9 @@ mod tests {
         assert_eq!(target.overlay_renderer.current(), OverlayRenderer::Modern);
         assert_eq!(key.release(8000), None);
 
-        dispatch_to_target(&target, Hotkey::F12, HotkeyEvent::Press);
-        dispatch_to_target(&target, Hotkey::F12, HotkeyEvent::LongPress);
-        dispatch_to_target(&target, Hotkey::F12, HotkeyEvent::ShortRelease);
+        dispatch_to_target(&target, Hotkey::F8, HotkeyEvent::Press);
+        dispatch_to_target(&target, Hotkey::F8, HotkeyEvent::LongPress);
+        dispatch_to_target(&target, Hotkey::F8, HotkeyEvent::ShortRelease);
         assert_eq!(target.controller.target_fps(), Some(65.0));
         assert_eq!(target.overlay_renderer.current(), OverlayRenderer::Modern);
     }
@@ -835,7 +874,7 @@ mod tests {
 
     #[test]
     /// Checks cycling through every AUTO algorithm before OFF and manual restoration.
-    fn f9_cycles_all_auto_algorithms_and_restores_the_target() {
+    fn f5_cycles_all_auto_algorithms_and_restores_the_target() {
         let mode = AtomicI32::new(0);
         let controller = FrameCapController::new(Some(75.0));
 

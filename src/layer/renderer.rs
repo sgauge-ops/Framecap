@@ -1693,7 +1693,7 @@ fn overlay_text_scale(width: u32, minimum_width: u32, widest_line: u32) -> u32 {
 mod tests {
     use super::*;
 
-    const HOTKEYS: [Hotkey; 4] = [Hotkey::F9, Hotkey::F11, Hotkey::F10, Hotkey::F12];
+    const HOTKEYS: [Hotkey; 4] = [Hotkey::F5, Hotkey::F7, Hotkey::F6, Hotkey::F8];
 
     /// Builds the target row using the test hotkey layout and standard step.
     fn target_text(target_fps: Option<f32>, auto_algorithm_index: Option<usize>) -> String {
@@ -1790,19 +1790,19 @@ mod tests {
         let off = target_text(None, None);
         assert_eq!(
             manual,
-            "[F9] CYCLE MODE  | [F10]  -5 FPS    | [F11]  +5 FPS    | [F12] CYCLE OSD"
+            "[F5] CYCLE MODE  | [F6]  -5 FPS     | [F7]  +5 FPS     | [F8] CYCLE OSD"
         );
         assert_eq!(
             auto,
-            "[F9] CYCLE MODE  | [F10]  -1 FPS    | [F11]  +1 FPS    | [F12] CYCLE OSD"
+            "[F5] CYCLE MODE  | [F6]  -1 FPS     | [F7]  +1 FPS     | [F8] CYCLE OSD"
         );
-        assert!(manual.contains("| [F10]  -5 FPS"));
-        assert!(manual.contains("| [F11]  +5 FPS"));
-        assert!(manual.contains("| [F12] CYCLE OSD"));
-        assert!(auto.contains("| [F10]  -1 FPS"));
-        assert!(auto.contains("| [F11]  +1 FPS"));
-        assert!(auto.contains("| [F12] CYCLE OSD"));
-        assert!(off.contains("[F10]  --") && off.contains("[F11]  --"));
+        assert!(manual.contains("| [F6]  -5 FPS"));
+        assert!(manual.contains("| [F7]  +5 FPS"));
+        assert!(manual.contains("| [F8] CYCLE OSD"));
+        assert!(auto.contains("| [F6]  -1 FPS"));
+        assert!(auto.contains("| [F7]  +1 FPS"));
+        assert!(auto.contains("| [F8] CYCLE OSD"));
+        assert!(off.contains("[F6]  --") && off.contains("[F7]  --"));
         let status = Renderer::status_text(Some(60.0), None, None, None, None);
         assert!(status.contains("MODE: MANUAL"));
         assert!(status.contains("| CAP:     60 FPS"));
@@ -1911,7 +1911,7 @@ mod tests {
             .filter(|character| !character.is_whitespace())
             .all(|character| glyph(character) != [0; 7]));
         for (line, marker) in [
-            (&manual, "| [F10]"),
+            (&manual, "| [F6]"),
             (&status, "| CAP:"),
             (&metrics, "| 10% LOW"),
             (&gpu_sensors, "| VRM:"),
@@ -1924,7 +1924,7 @@ mod tests {
             );
         }
         for (line, marker) in [
-            (&manual, "| [F11]"),
+            (&manual, "| [F7]"),
             (&status, "| HYS:"),
             (&gpu_sensors, "| Load:"),
             (&cpu_sensors, "| Load:"),
@@ -1932,7 +1932,7 @@ mod tests {
             assert_eq!(char_column(line, marker), SECOND_COLUMN);
         }
         for (line, marker) in [
-            (&manual, "| [F12]"),
+            (&manual, "| [F8]"),
             (&status, "| TARGET:"),
             (&gpu_sensors, "| PPT:"),
             (&cpu_sensors, "| RPM:"),
@@ -2015,9 +2015,9 @@ mod tests {
     fn overlay_column_anchors_are_stable_with_maximum_manual_step() {
         let keys = Renderer::target_text(Some(240.0), None, None, HOTKEYS, 240.0);
         let status = Renderer::status_text(Some(240.0), None, None, None, None);
-        assert_eq!(keys.find("| [F10]").unwrap(), FIRST_COLUMN);
-        assert_eq!(keys.find("| [F11]").unwrap(), SECOND_COLUMN);
-        assert_eq!(keys.find("| [F12]").unwrap(), THIRD_COLUMN);
+        assert_eq!(keys.find("| [F6]").unwrap(), FIRST_COLUMN);
+        assert_eq!(keys.find("| [F7]").unwrap(), SECOND_COLUMN);
+        assert_eq!(keys.find("| [F8]").unwrap(), THIRD_COLUMN);
         assert_eq!(status.find("| CAP:").unwrap(), FIRST_COLUMN);
         assert_eq!(status.find("| HYS:").unwrap(), SECOND_COLUMN);
         assert_eq!(status.find("| TARGET:").unwrap(), THIRD_COLUMN);
@@ -2027,8 +2027,8 @@ mod tests {
     /// Checks that fractional target FPS values retain their decimal precision.
     fn target_text_preserves_fractional_fps_settings() {
         let text = Renderer::target_text(Some(77.5), None, None, HOTKEYS, 5.5);
-        assert!(text.contains("| [F10]  -5.5 FPS"));
-        assert!(text.contains("| [F11]  +5.5 FPS"));
+        assert!(text.contains("| [F6]  -5.5 FPS"));
+        assert!(text.contains("| [F7]  +5.5 FPS"));
         assert!(Renderer::status_text(
             Some(77.5),
             Some("JIT"),
@@ -2042,16 +2042,16 @@ mod tests {
     #[test]
     /// Checks custom key hints and highlighting of the pressed key.
     fn overlay_key_hints_follow_custom_bindings_and_highlight_the_pressed_key() {
-        let hotkeys = [Hotkey::F12, Hotkey::F9, Hotkey::F10, Hotkey::F11];
+        let hotkeys = [Hotkey::F8, Hotkey::F5, Hotkey::F6, Hotkey::F7];
         let text = Renderer::target_text(Some(60.0), None, None, hotkeys, 2.5);
-        assert!(text.contains("[F12] CYCLE MODE"));
-        assert!(text.contains("[F10]  -2.5 FPS"));
-        let highlights = Renderer::feedback_rects(&text, [1200, 100], 1, 8, "[F9]");
-        let f9_start = text.find("[F9]").unwrap() as u32 * 6 + 8;
+        assert!(text.contains("[F8] CYCLE MODE"));
+        assert!(text.contains("[F6]  -2.5 FPS"));
+        let highlights = Renderer::feedback_rects(&text, [1200, 100], 1, 8, "[F5]");
+        let f5_start = text.find("[F5]").unwrap() as u32 * 6 + 8;
         assert!(!highlights.is_empty());
         assert!(highlights
             .iter()
-            .all(|rect| { rect.x >= f9_start && rect.x + rect.width <= f9_start + 24 }));
+            .all(|rect| { rect.x >= f5_start && rect.x + rect.width <= f5_start + 24 }));
     }
 
     #[test]
@@ -2091,10 +2091,10 @@ mod tests {
             let hints = Renderer::target_text(Some(60.0), Some(0), Some(metric), HOTKEYS, 5.0);
             assert!(hints.contains(&format!("-{step} {unit}")));
             assert!(hints.contains(&format!("+{step} {unit}")));
-            assert_eq!(char_column(&hints, "| [F12]"), THIRD_COLUMN);
+            assert_eq!(char_column(&hints, "| [F8]"), THIRD_COLUMN);
         }
         let hints = Renderer::target_text(Some(60.0), Some(0), None, HOTKEYS, 5.0);
-        assert!(hints.contains("| [F10]  --"));
+        assert!(hints.contains("| [F6]  --"));
         assert!(
             Renderer::status_text(Some(60.0), Some("AUTO"), Some(5.0), None, None)
                 .contains("HYS:    --")
@@ -2303,12 +2303,12 @@ mod tests {
         let start = Instant::now();
         let later = start + Duration::from_millis(500);
         *feedback.events.lock() = OverlayFeedbackTimestamps {
-            hotkey: Some((Hotkey::F10, start)),
+            hotkey: Some((Hotkey::F6, start)),
             cap: Some(later),
             hysteresis: Some(later),
         };
         let current = feedback.current(start + FEEDBACK_VISIBLE_FOR);
-        assert_eq!(current.hotkey, Some(Hotkey::F10));
+        assert_eq!(current.hotkey, Some(Hotkey::F6));
         assert!(current.cap_changed && current.hysteresis_changed);
         let independently_expired =
             feedback.current(start + FEEDBACK_VISIBLE_FOR + Duration::from_millis(1));

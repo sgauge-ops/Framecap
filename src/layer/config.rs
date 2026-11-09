@@ -96,20 +96,20 @@ impl AutoAlgorithmKind {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Hotkey {
-    F9,
-    F10,
-    F11,
-    F12,
+    F5,
+    F6,
+    F7,
+    F8,
 }
 
 impl Hotkey {
     /// Returns the function-key label used in the overlay.
     pub fn label(self) -> &'static str {
         match self {
-            Self::F9 => "F9",
-            Self::F10 => "F10",
-            Self::F11 => "F11",
-            Self::F12 => "F12",
+            Self::F5 => "F5",
+            Self::F6 => "F6",
+            Self::F7 => "F7",
+            Self::F8 => "F8",
         }
     }
 }
@@ -160,11 +160,11 @@ impl Config {
         let manual = file_settings.manual_mode;
         let metrics = file_settings.metrics;
 
-        let target_fps = match parse_target_fps(Some(framecap.target_fps)) {
+        let target_fps = match parse_target_fps(Some(manual.startup_fps)) {
             Ok(target_fps) => target_fps,
             Err(reason) => {
                 diagnostics::error(format!(
-                    "Invalid [overlay].target_fps: {reason}; frame cap disabled"
+                    "Invalid [manual-mode].startup_fps: {reason}; frame cap disabled"
                 ));
                 None
             }
@@ -237,6 +237,19 @@ impl Config {
         );
         let (manual_min_fps, manual_max_fps) =
             validated_fps_bounds(manual.manual_min_fps, manual.manual_max_fps, "manual-mode");
+        let configured_hotkeys = parse_hotkeys([
+            &keys.hotkey_auto,
+            &keys.hotkey_up,
+            &keys.hotkey_down,
+            &keys.hotkey_toggle,
+        ]);
+        if configured_hotkeys.is_none() {
+            diagnostics::error(
+                "Invalid [key-bindings]: keys must be distinct and use F5-F8; global shortcuts disabled",
+            );
+        }
+        let [hotkey_auto, hotkey_up, hotkey_down, hotkey_toggle] =
+            configured_hotkeys.unwrap_or([Hotkey::F5, Hotkey::F7, Hotkey::F6, Hotkey::F8]);
 
         Self {
             target_fps,
@@ -257,11 +270,11 @@ impl Config {
             manual_step_fps,
             manual_min_fps,
             manual_max_fps,
-            input_enabled: keys.input_enabled,
-            hotkey_auto: hotkey_from_string(keys.hotkey_auto),
-            hotkey_up: hotkey_from_string(keys.hotkey_up),
-            hotkey_down: hotkey_from_string(keys.hotkey_down),
-            hotkey_toggle: hotkey_from_string(keys.hotkey_toggle),
+            input_enabled: keys.input_enabled && configured_hotkeys.is_some(),
+            hotkey_auto,
+            hotkey_up,
+            hotkey_down,
+            hotkey_toggle,
             cpu_temp_path: metrics.cpu_temp_path.clone(),
             gpu_vrm_temp_path: metrics.gpu_vrm_temp_path.clone(),
             cpu_vrm_temp_path: metrics.cpu_vrm_temp_path.clone(),
@@ -333,8 +346,8 @@ fn parse_target_fps(value: Option<f32>) -> Result<Option<f32>, &'static str> {
     match value {
         Some(0.0) => Ok(None),
         Some(fps) => {
-            if !fps.is_finite() || fps < 0.0 || fps > MAX_TARGET_FPS {
-                return Err("target_fps must be 0 or between 1.0 and 240.0");
+            if !fps.is_finite() || !(MIN_TARGET_FPS..=MAX_TARGET_FPS).contains(&fps) {
+                return Err("startup_fps must be 0 or between 1.0 and 240.0");
             }
             Ok(Some(fps))
         }
@@ -590,20 +603,58 @@ pub fn non_negative_finite(value: f32, name: &str, section: &str, default: f32) 
 }
 
 /// Converts a configured key name to a function-key enum.
-fn hotkey_from_string(value: String) -> Hotkey {
-    match value.as_str() {
-        "F9" => Hotkey::F9,
-        "F10" => Hotkey::F10,
-        "F11" => Hotkey::F11,
-        "F12" => Hotkey::F12,
-        _ => Hotkey::F9,
+fn parse_hotkeys(values: [&str; 4]) -> Option<[Hotkey; 4]> {
+    let mut keys = [Hotkey::F5; 4];
+    for (index, value) in values.iter().enumerate() {
+        let key = match *value {
+            "F5" => Hotkey::F5,
+            "F6" => Hotkey::F6,
+            "F7" => Hotkey::F7,
+            "F8" => Hotkey::F8,
+            _ => return None,
+        };
+        if keys[..index].contains(&key) {
+            return None;
+        }
+        keys[index] = key;
     }
+    Some(keys)
 }
 
 #[cfg(test)]
 mod tests {
     use super::{validated_gpu_thresholds, AutoAlgorithmKind, AutoMetric, AutoTarget, Config};
     use std::time::Duration;
+
+    #[test]
+    fn hotkeys_accept_only_distinct_f5_to_f8() {
+        use super::{parse_hotkeys, Hotkey};
+        assert_eq!(
+            parse_hotkeys(["F5", "F7", "F6", "F8"]),
+            Some([Hotkey::F5, Hotkey::F7, Hotkey::F6, Hotkey::F8])
+        );
+        assert_eq!(
+            parse_hotkeys(["F8", "F5", "F7", "F6"]),
+            Some([Hotkey::F8, Hotkey::F5, Hotkey::F7, Hotkey::F6])
+        );
+        assert_eq!(parse_hotkeys(["F9", "F7", "F6", "F8"]), None);
+        assert_eq!(parse_hotkeys(["F5", "F5", "F6", "F8"]), None);
+    }
+
+    #[test]
+    fn startup_fps_accepts_off_and_supported_bounds() {
+        for (value, expected) in [
+            (0.0, None),
+            (1.0, Some(1.0)),
+            (60.0, Some(60.0)),
+            (240.0, Some(240.0)),
+        ] {
+            assert_eq!(super::parse_target_fps(Some(value)), Ok(expected));
+        }
+        for value in [-1.0, 0.5, 240.1, f32::NAN, f32::INFINITY] {
+            assert!(super::parse_target_fps(Some(value)).is_err());
+        }
+    }
 
     #[test]
     /// Checks the predefined algorithm names and rejects removed adjustment rules.
@@ -626,6 +677,22 @@ mod tests {
     #[test]
     fn shipped_algorithms_keep_order_and_independent_settings() {
         let config = Config::load();
+        assert_eq!(config.target_fps, Some(90.0));
+        assert!(config.input_enabled);
+        assert_eq!(
+            [
+                config.hotkey_auto,
+                config.hotkey_down,
+                config.hotkey_up,
+                config.hotkey_toggle
+            ],
+            [
+                super::Hotkey::F5,
+                super::Hotkey::F6,
+                super::Hotkey::F7,
+                super::Hotkey::F8
+            ]
+        );
         assert_eq!(config.auto_algorithms.len(), 3);
         assert_eq!(config.auto_algorithms[0].name, "gpu_threshold");
         assert_eq!(config.auto_algorithms[0].metric, AutoMetric::Fps);

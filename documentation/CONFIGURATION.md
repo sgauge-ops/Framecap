@@ -25,13 +25,13 @@ configuration.
 
 | Section | Purpose |
 | --- | --- |
-| `[framecap]` | Initial cap, metrics window, and GPU polling interval. `target_fps = 0` starts in OFF. |
-| `[key-bindings]` | Enable and assign distinct F9-F12 shortcuts. |
+| `[framecap]` | Metrics window and GPU polling interval. |
+| `[key-bindings]` | Enable and assign distinct F5-F8 shortcuts. |
 | `[sensors]` | Optional hwmon device/label selectors or path overrides for temperatures, power, and fan speed. |
 | `[overlay]` | Visibility, refresh, smoothing, text scaling, FPS color, and background. |
 | `[auto-mode]` | Algorithm order. |
 | `[auto-mode.algorithms.<name>]` | Metric, target, absolute hysteresis, collection/confirmation window, steps, and FPS bounds; `gpu_threshold` also owns the GPU/jitter thresholds. |
-| `[manual-mode]` | Manual FPS step and bounds. |
+| `[manual-mode]` | Startup FPS cap, manual FPS step and bounds. `startup_fps = 0` starts in OFF. |
 | `[diagnostics]` | Log path and append behavior. |
 
 The [example file](../framecap.toml) documents individual keys and built-in
@@ -65,7 +65,11 @@ not produce synthetic sensor values. The `fan_rpm` algorithm uses the fan
 sensor reading and stops adjusting when its AUTO window has no valid data.
 
 Legacy settings moved from `[framecap]` are read for migration without
-rewriting the file; conflicting old and new settings are rejected. The old
+rewriting the file. In particular, `[framecap].target_fps` is deprecated in
+favor of `[manual-mode].startup_fps`; when both are present the latter wins
+and a warning is emitted. `startup_fps` defaults to 60 FPS; zero starts OFF,
+and valid positive values range from 1 to 240 FPS. Invalid values disable the
+cap. The old
 single-rule auto-mode keys `jitter_high`, `jitter_low`, and `gpu_saturation`
 are obsolete and do not control the current algorithms.
 
@@ -93,17 +97,20 @@ See [automatic regulation](AUTO-MODE.md) for timing and decision details.
 
 ## Keyboard shortcuts
 
-The defaults are F9 to cycle manual, configured automatic algorithms, OFF,
-then manual; F10/F11 decrease/increase the manual cap or active automatic
+The defaults are F5 to cycle manual, configured automatic algorithms, OFF,
+then manual; F6/F7 decrease/increase the manual cap or active automatic
 hysteresis (by 1 FPS, 1 °C, or 10 RPM according to the active algorithm);
-a short F12 press cycles the overlay through full, FPS only, and off.
-Holding F12 for one second switches between `modern` and `ascii` without
+a short F8 press cycles the overlay through full, FPS only, and off.
+Holding F8 for one second switches between `modern` and `ascii` without
 waiting for release or changing the display mode. The switch is temporary
 and also uses the configured `hotkey_toggle` if reassigned. Limiter OFF
 remembers the previous cap.
 All shortcuts are configurable and must be distinct. They require X11/XWayland
 and may prevent the application from receiving those keys. Native Wayland has no
 global shortcut support in the current backend.
+Only F5–F8 are supported. Existing configurations with explicit F9–F12 bindings
+must be updated; invalid or duplicate bindings disable all global shortcuts
+and produce a diagnostic message.
 
 ## Diagnostics
 

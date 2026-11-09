@@ -11,7 +11,7 @@ built Vulkan layer library.
 - 64-bit Linux, a graphical session, a working Vulkan loader, and a Vulkan driver.
 - Rust and Cargo; see [rustup](https://rustup.rs/) if needed.
 - `git` to clone the sources; `vkcube` and `timeout` for the optional test.
-- X11 or XWayland for global F9-F12 shortcuts. Native Wayland does not support
+- X11 or XWayland for global F5-F8 shortcuts. Native Wayland does not support
   these shortcuts through the current backend.
 
 For example, on Debian or Ubuntu:

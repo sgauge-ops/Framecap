@@ -704,7 +704,7 @@ pub(super) fn layout(
 mod tests {
     use super::*;
 
-    const KEYS: [Hotkey; 4] = [Hotkey::F9, Hotkey::F11, Hotkey::F10, Hotkey::F12];
+    const KEYS: [Hotkey; 4] = [Hotkey::F5, Hotkey::F7, Hotkey::F6, Hotkey::F8];
 
     fn snapshot(fps: f32, hardware: HardwareMetrics, status: TelemetryStatus) -> MetricsSnapshot {
         let now = Instant::now();
@@ -784,7 +784,7 @@ mod tests {
             KEYS,
             5.0,
             OverlayFeedback {
-                hotkey: Some(Hotkey::F10),
+                hotkey: Some(Hotkey::F6),
                 cap_changed: true,
                 hysteresis_changed: true,
             },
@@ -803,7 +803,7 @@ mod tests {
             ("35 %", 314, 132, 14, 40, VALUE),
             ("32.6 W", 70, 159, 14, 125, VALUE),
             ("1240 RPM", 254, 159, 14, 100, VALUE),
-            ("F10", 108, 188, 11, 23, FEEDBACK),
+            ("F6", 108, 188, 11, 23, FEEDBACK),
             ("-1 FPS", 140, 188, 11, 50, LABEL),
         ] {
             assert_text(&dashboard, text, x, y, size, width, group);

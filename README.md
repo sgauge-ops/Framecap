@@ -5,14 +5,14 @@ Framecap is an experimental Linux Vulkan layer that provides an overlay with man
 Framecap has been developped and validated with a bc250 mining board running CachyOS with [bc250 kernel](https://github.com/MastaG/linux-cachyos-bc250) and [cyan-skillfish governor](https://github.com/filippor/cyan-skillfish-governor).
 Any other configuration is unknown at the moment.
 
-Framecap offers the following modes, that can be cycled-through via [F9] (by default):
+Framecap offers the following modes, that can be cycled-through via [F5] (by default):
 | mode | description |
 | --- | --- |
 | OFF | Overlay only, no frame capping |
-| MANUAL | User defined frame capping, use [F10] and [F11] respectively decrease and increase frame cap |
-| AUTO (JIT) | Adjusts the cap using 10%-low FPS, GPU load and jitter; [F10] and [F11] adjust the hysteresis in FPS |
-| AUTO (VRM) | Adjusts the cap around a VRM temperature target; [F10] and [F11] adjust the hysteresis in °C |
-| AUTO (FAN) | Adjusts the cap around a fan-speed target; [F10] and [F11] adjust the hysteresis in RPM |
+| MANUAL | User defined frame capping, use [F6] and [F7] respectively decrease and increase frame cap |
+| AUTO (JIT) | Adjusts the cap using 10%-low FPS, GPU load and jitter; [F6] and [F7] adjust the hysteresis in FPS |
+| AUTO (VRM) | Adjusts the cap around a VRM temperature target; [F6] and [F7] adjust the hysteresis in °C |
+| AUTO (FAN) | Adjusts the cap around a fan-speed target; [F6] and [F7] adjust the hysteresis in RPM |
 
 The automatic algorithms use a per-algorithm rolling measurement window and
 require a persistent adjustment direction before changing the cap. The default
@@ -21,9 +21,9 @@ VRM and FAN, respectively. See [automatic regulation](documentation/AUTO-MODE.md
 for the rules and limitations. The algorithms are still experimental and being
 fine-tuned. Your feedback is welcome.
 
-A short [F12] press cycles the overlay through full, FPS only, and off.
+A short [F8] press cycles the overlay through full, FPS only, and off.
 
-Holding [F12] for one second switches between the `modern` and `ascii` renderers. Background logic remains active when the overlay is hidden.
+Holding [F8] for one second switches between the `modern` and `ascii` renderers. Background logic remains active when the overlay is hidden.
 
 Framecap's behavior is largely configurable in `framecap.toml`. Existing
 configurations with older AUTO keys must be updated; see

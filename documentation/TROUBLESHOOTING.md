@@ -40,7 +40,7 @@ Keep the game, driver, and launch settings the same when comparing runs.
    Compare with `vkcube --c 300` without Framecap. If the overlay works in
    `vkcube` but not in the game, collect the logs below for the game.
 5. Check the effective configuration: `[overlay].startup = 2` shows the full
-   overlay at startup, `1` shows FPS only, and `0` hides it. F12 cycles these
+   overlay at startup, `1` shows FPS only, and `0` hides it. F8 cycles these
    modes by default. Shortcuts require
    X11/XWayland, may be disabled or rebound, and do not work through the
    current backend on native Wayland. Framecap uses one process-wide listener
@@ -80,7 +80,7 @@ not reproduce an AUTO decision. See the [automatic regulation reference](AUTO-MO
 2. Note when the failure happens: startup, menu, entering 3D, or later. If
    possible, compare the same scene with the overlay hidden and visible, and
    with the cap OFF. On native Wayland, set `[overlay].startup = 0` or
-   `[framecap].target_fps = 0` in the effective configuration and restart
+   `[manual-mode].startup_fps = 0` in the effective configuration and restart
    instead of relying on unavailable global shortcuts.
 3. If other overlays, mods, or upscalers are involved, compare one change at a
    time. Do not conclude that Framecap caused a crash solely because it was

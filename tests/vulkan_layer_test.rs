@@ -34,7 +34,7 @@ fn run_vkcube(
     fs::write(
         config_dir.join("framecap.toml"),
         format!(
-            "[framecap]\ntarget_fps = {target_fps}\ninput_enabled = false\n\n[overlay]\nstartup = {overlay_startup}\nrenderer = \"{renderer}\"\nfps_color = [17, 128, 240]\n\n[diagnostics]\nlog_path = {:?}\n",
+            "[manual-mode]\nstartup_fps = {target_fps}\n\n[key-bindings]\ninput_enabled = false\n\n[overlay]\nstartup = {overlay_startup}\nrenderer = \"{renderer}\"\nfps_color = [17, 128, 240]\n\n[diagnostics]\nlog_path = {:?}\n",
             log_path.display().to_string()
         ),
     )
@@ -108,6 +108,7 @@ fn vkcube_presents_with_and_without_framecap_layer() {
                 "vkCreateInstance requested",
                 "vkCreateDevice succeeded",
                 "configuration:",
+                "startup_fps=60",
             ] {
                 assert!(
                     diagnostic_log.contains(entry),
@@ -155,6 +156,10 @@ fn vkcube_presents_with_and_without_framecap_layer() {
     assert!(
         capped_output.status.success(),
         "capped vkcube failed:\n{capped_log}"
+    );
+    assert!(
+        diagnostic_log.contains("startup_fps=30"),
+        "startup FPS was not loaded from [manual-mode]:\n{diagnostic_log}"
     );
     assert!(
         capped_time >= Duration::from_millis(700),
