@@ -9,22 +9,18 @@ Framecap offers the following modes, that can be cycled-through via [F9] (by def
 | mode | description |
 | --- | --- |
 | OFF | Overlay only, no frame capping |
-| MANUAL | User defined frame capping, use [10] and [F11] respectively decrease and increase frame cap |
-| AUTO (FPS) | Tries to minimize jitter by limiting FPS to its 10%-low fps + user defined hysteresis, use [10] and [F11] to adjust hysteresis |
-| AUTO (VRM) | Automatic frame capping so VRM doesn't exceed a target temp + user defined hysteresis, use [10] and [F11] to adjust hysteresis |
-| AUTO (FAN) | Automatic frame capping so fan speed doesn't exceed a target rpm + user defined hysteresis, use [10] and [F11] to adjust hysteresis |
+| MANUAL | User defined frame capping, use [F10] and [F11] respectively decrease and increase frame cap |
+| AUTO (FPS) | Tries to minimize jitter by limiting FPS to its 10%-low fps + user defined hysteresis, use [F10] and [F11] to adjust hysteresis |
+| AUTO (VRM) | Automatic frame capping so VRM doesn't exceed a target temp + user defined hysteresis, use [F10] and [F11] to adjust hysteresis |
+| AUTO (FAN) | Automatic frame capping so fan speed doesn't exceed a target rpm + user defined hysteresis, use [F10] and [F11] to adjust hysteresis |
 
 The automatic algorithms are still experimental and being fine-tuned. Your feedback is welcome.
 
-A short F12 press cycles the overlay through full, FPS only, and off. Holding
-F12 for at least one second switches between the `modern` and `ascii` renderers
-on release. Background logic remains active when the overlay is hidden.
+A short [F12] press cycles the overlay through full, FPS only, and off.
+
+Holding [F12] for one second switches between the `modern` and `ascii` renderers. Background logic remains active when the overlay is hidden.
 
 Framecap's behavior is largely configurable in `framecap.toml`
-
-The supplied configuration selects the graphical dashboard (`modern`). Set
-`[overlay].renderer = "ascii"` to use the original text overlay instead;
-both layouts retain the same F12 display modes and controls.
 
 # Short installation guide
 

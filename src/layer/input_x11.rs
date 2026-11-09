@@ -13,11 +13,11 @@ use std::ptr;
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, Ordering};
 use std::sync::{Arc, OnceLock, Weak};
 use std::thread::{self, JoinHandle};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 const KEY_PRESS: c_int = 2;
 const KEY_RELEASE: c_int = 3;
-const LONG_PRESS_MS: u32 = 1000;
+const LONG_PRESS: Duration = Duration::from_secs(1);
 const MODE_OFF: i32 = -1;
 const MODE_MANUAL: i32 = 0;
 const GRAB_MODE_ASYNC: c_int = 1;
@@ -396,9 +396,15 @@ fn run_listener(stop: Arc<AtomicBool>) -> Result<(), String> {
     }
     diagnostics::info("Framecap: process-wide X11 hotkey listener active (F9/F10/F11/F12)");
 
-    let mut pressed = [None; 4];
+    let mut pressed: [Option<PressedKey>; 4] = [None; 4];
     while !stop.load(Ordering::Relaxed) {
         if unsafe { (x11.pending)(display) } == 0 {
+            let now = Instant::now();
+            for (index, key) in pressed.iter_mut().enumerate() {
+                if key.as_mut().is_some_and(|key| key.long_press_due(now)) {
+                    dispatch_hotkey(hotkeys[index], HotkeyEvent::LongPress);
+                }
+            }
             thread::sleep(Duration::from_millis(5));
             continue;
         }
@@ -417,7 +423,7 @@ fn run_listener(stop: Arc<AtomicBool>) -> Result<(), String> {
         };
 
         if key.type_ == KEY_PRESS && pressed[index].is_none() {
-            pressed[index] = Some(key.time as u32);
+            pressed[index] = Some(PressedKey::new(key.time as u32, Instant::now()));
             dispatch_hotkey(hotkeys[index], HotkeyEvent::Press);
         } else if key.type_ == KEY_RELEASE {
             let mut next_event = MaybeUninit::<XEvent>::uninit();
@@ -438,13 +444,9 @@ fn run_listener(stop: Arc<AtomicBool>) -> Result<(), String> {
                 }
             }
             if let Some(start) = pressed[index].take() {
-                let elapsed = (key.time as u32).wrapping_sub(start);
-                dispatch_hotkey(
-                    hotkeys[index],
-                    HotkeyEvent::Release {
-                        elapsed_ms: elapsed,
-                    },
-                );
+                if let Some(event) = start.release(key.time as u32) {
+                    dispatch_hotkey(hotkeys[index], event);
+                }
             }
         }
     }
@@ -465,7 +467,44 @@ fn run_listener(stop: Arc<AtomicBool>) -> Result<(), String> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum HotkeyEvent {
     Press,
-    Release { elapsed_ms: u32 },
+    ShortRelease,
+    LongPress,
+}
+
+#[derive(Clone, Copy)]
+struct PressedKey {
+    x_time: u32,
+    started_at: Instant,
+    long_press_dispatched: bool,
+}
+
+impl PressedKey {
+    fn new(x_time: u32, started_at: Instant) -> Self {
+        Self {
+            x_time,
+            started_at,
+            long_press_dispatched: false,
+        }
+    }
+
+    fn long_press_due(&mut self, now: Instant) -> bool {
+        if !self.long_press_dispatched && now.duration_since(self.started_at) >= LONG_PRESS {
+            self.long_press_dispatched = true;
+            true
+        } else {
+            false
+        }
+    }
+
+    fn release(self, x_time: u32) -> Option<HotkeyEvent> {
+        if self.long_press_dispatched {
+            None
+        } else if Duration::from_millis(u64::from(x_time.wrapping_sub(self.x_time))) >= LONG_PRESS {
+            Some(HotkeyEvent::LongPress)
+        } else {
+            Some(HotkeyEvent::ShortRelease)
+        }
+    }
 }
 
 fn dispatch_hotkey(hotkey: Hotkey, event: HotkeyEvent) {
@@ -491,14 +530,14 @@ fn dispatch_hotkey(hotkey: Hotkey, event: HotkeyEvent) {
 fn dispatch_to_target(target: &HotkeyTarget, hotkey: Hotkey, event: HotkeyEvent) {
     if let Some(action) = configured_action(&target.hotkeys, hotkey) {
         match (action, event) {
-            (3, HotkeyEvent::Release { elapsed_ms }) if elapsed_ms >= LONG_PRESS_MS => {
+            (3, HotkeyEvent::LongPress) => {
                 target
                     .overlay_feedback
                     .record(OverlayFeedbackEvent::HotkeyPressed(hotkey));
                 let renderer = target.overlay_renderer.toggle();
                 diagnostics::info(format!("[CONTROL] Overlay renderer {renderer:?}"));
             }
-            (3, HotkeyEvent::Release { .. }) | (0..=2, HotkeyEvent::Press) => {
+            (3, HotkeyEvent::ShortRelease) | (0..=2, HotkeyEvent::Press) => {
                 dispatch_action(target, action, hotkey);
             }
             _ => {}
@@ -667,21 +706,24 @@ mod tests {
             overlay_feedback: Arc::new(OverlayFeedbackState::new()),
             hotkeys: [Hotkey::F10, Hotkey::F12, Hotkey::F9, Hotkey::F11],
         };
-        let press = |event| dispatch_to_target(&target, Hotkey::F11, event);
-        press(HotkeyEvent::Press);
+        let dispatch = |event| dispatch_to_target(&target, Hotkey::F11, event);
+        let now = Instant::now();
+        let mut key = PressedKey::new(100, now);
+        dispatch(HotkeyEvent::Press);
         assert_eq!(target.overlay_mode.mode(), OverlayMode::Full);
-        press(HotkeyEvent::Release {
-            elapsed_ms: LONG_PRESS_MS - 1,
-        });
+        assert!(!key.long_press_due(now + Duration::from_millis(999)));
+        dispatch(key.release(1099).unwrap());
         assert_eq!(target.overlay_mode.mode(), OverlayMode::Fps);
         assert_eq!(target.overlay_renderer.current(), OverlayRenderer::Modern);
 
-        press(HotkeyEvent::Press);
-        press(HotkeyEvent::Release {
-            elapsed_ms: LONG_PRESS_MS,
-        });
+        let mut key = PressedKey::new(2000, now);
+        dispatch(HotkeyEvent::Press);
+        assert!(key.long_press_due(now + LONG_PRESS));
+        dispatch(HotkeyEvent::LongPress);
         assert_eq!(target.overlay_mode.mode(), OverlayMode::Fps);
         assert_eq!(target.overlay_renderer.current(), OverlayRenderer::Ascii);
+        assert!(!key.long_press_due(now + Duration::from_secs(3)));
+        assert_eq!(key.release(5000), None);
         assert_eq!(
             target
                 .overlay_feedback
@@ -690,20 +732,33 @@ mod tests {
             Some(Hotkey::F11)
         );
 
-        press(HotkeyEvent::Release { elapsed_ms: 10 });
+        dispatch(PressedKey::new(6000, now).release(6010).unwrap());
         assert_eq!(target.overlay_mode.mode(), OverlayMode::Off);
-        press(HotkeyEvent::Release { elapsed_ms: 2000 });
+        let mut key = PressedKey::new(7000, now);
+        assert!(key.long_press_due(now + LONG_PRESS));
+        dispatch(HotkeyEvent::LongPress);
         assert_eq!(target.overlay_mode.mode(), OverlayMode::Off);
         assert_eq!(target.overlay_renderer.current(), OverlayRenderer::Modern);
+        assert_eq!(key.release(8000), None);
 
         dispatch_to_target(&target, Hotkey::F12, HotkeyEvent::Press);
-        dispatch_to_target(
-            &target,
-            Hotkey::F12,
-            HotkeyEvent::Release { elapsed_ms: 2000 },
-        );
+        dispatch_to_target(&target, Hotkey::F12, HotkeyEvent::LongPress);
+        dispatch_to_target(&target, Hotkey::F12, HotkeyEvent::ShortRelease);
         assert_eq!(target.controller.target_fps(), Some(65.0));
         assert_eq!(target.overlay_renderer.current(), OverlayRenderer::Modern);
+    }
+
+    #[test]
+    fn queued_releases_use_x11_timestamps_and_handle_wraparound() {
+        let now = Instant::now();
+        assert_eq!(
+            PressedKey::new(u32::MAX - 499, now).release(499),
+            Some(HotkeyEvent::ShortRelease)
+        );
+        assert_eq!(
+            PressedKey::new(u32::MAX - 499, now).release(500),
+            Some(HotkeyEvent::LongPress)
+        );
     }
 
     #[test]

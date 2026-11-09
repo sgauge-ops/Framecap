@@ -8,6 +8,7 @@ changes, not necessarily when development originally took place.
 
 | Date | Changes |
 | --- | --- |
+| 2026-11-09 | Made the overlay renderer switch occur after one second of holding the shortcut, without waiting for key release. |
 | 2026-11-09 | Added a long press of the overlay shortcut (F12 by default) to switch temporarily between `modern` and `ascii`, including while hidden; a short press still cycles display modes. |
 | 2026-11-09 | Renamed the `[overlay].renderer` values from `dashboard` to `modern` and from `classic` to `ascii`; existing configurations must be updated. |
 | 2026-11-09 | Made the modern overlay more compact, reducing its full layout to 370 × 215 pixels at 1× and positioning the FPS label next to the displayed value. |

@@ -11,7 +11,7 @@ input_enabled = true    # Enable global function-key shortcuts. Built-in default
 hotkey_auto = "F9"      # Cycle manual -> automatic -> off. Built-in default: F9; valid keys: F9-F12; invalid or duplicate keys disable all shortcuts.
 hotkey_down = "F10"     # Decrease the manual cap or AUTO hysteresis. Built-in default: F10; valid keys: F9-F12; invalid or duplicate keys disable all shortcuts.
 hotkey_up = "F11"       # Increase the manual cap or AUTO hysteresis. Built-in default: F11; valid keys: F9-F12; invalid or duplicate keys disable all shortcuts.
-hotkey_toggle = "F12"   # Short press cycles full -> FPS only -> off; hold for 1 second to switch renderer. Built-in default: F12; valid keys: F9-F12; invalid or duplicate keys disable all shortcuts.
+hotkey_toggle = "F12"   # Short press cycles full -> FPS only -> off; hold for 1 second to switch renderer before release. Built-in default: F12; valid keys: F9-F12; invalid or duplicate keys disable all shortcuts.
 
 [sensors]
 # Select hwmon sensors by device name and label rather than volatile hwmon indices.

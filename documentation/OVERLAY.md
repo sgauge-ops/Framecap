@@ -35,13 +35,12 @@ AUTO:    [F9] CYCLE MODE  | [F10]  -1 %      | [F11]  +1 %      | [F12] CYCLE OS
 ```
 
 On release, a short press of F12 cycles full overlay → FPS only → off → full
-overlay; holding it for at least one second switches between `modern` and
-`ascii` without changing the display mode. The same applies to a custom
-`[key-bindings].hotkey_toggle`. The renderer switch is temporary and is not
-written to the configuration file; it also works while the overlay is hidden.
-FPS-only mode
-shows just the FPS measurement (or `COLLECT` while collecting) with its own
-background. `[overlay].startup` selects the initial mode: `0` off,
+overlay; holding it for one second switches between `modern` and `ascii`
+without waiting for release or changing the display mode. The same applies to
+a custom `[key-bindings].hotkey_toggle`. The renderer switch is temporary and
+is not written to the configuration file; it also works while the overlay is
+hidden. FPS-only mode shows just the FPS measurement (or `COLLECT` while
+collecting) with its own background. `[overlay].startup` selects the initial mode: `0` off,
 `1` FPS only, `2` full overlay (built-in default). These display modes do not
 disable frame limiting or automatic regulation.
 
