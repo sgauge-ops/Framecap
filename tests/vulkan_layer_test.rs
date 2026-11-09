@@ -86,7 +86,7 @@ fn vkcube_presents_with_and_without_framecap_layer() {
 
     for layer_enabled in [false, true] {
         let (output, _, diagnostic_log) =
-            run_vkcube(root, wsi, layer_enabled, None, 2, "classic", 60, false);
+            run_vkcube(root, wsi, layer_enabled, None, 2, "ascii", 60, false);
         let log = format!(
             "{}\n{}\n{}",
             String::from_utf8_lossy(&output.stdout),
@@ -117,7 +117,7 @@ fn vkcube_presents_with_and_without_framecap_layer() {
         }
     }
 
-    for (renderer, expected) in [("classic", "Classic"), ("dashboard", "Dashboard")] {
+    for (renderer, expected) in [("ascii", "Ascii"), ("modern", "Modern")] {
         for mode in 0..=2 {
             let (output, _, diagnostic_log) =
                 run_vkcube(root, wsi, true, None, mode, renderer, 20, false);
@@ -139,13 +139,13 @@ fn vkcube_presents_with_and_without_framecap_layer() {
     }
 
     let (uncapped_output, uncapped_time, _) =
-        run_vkcube(root, wsi, true, Some("0"), 2, "classic", 30, true);
+        run_vkcube(root, wsi, true, Some("0"), 2, "ascii", 30, true);
     if !uncapped_output.status.success() {
         eprintln!("Skipping frame-cap timing check: immediate present mode is unavailable");
         return;
     }
     let (capped_output, capped_time, diagnostic_log) =
-        run_vkcube(root, wsi, true, Some("30"), 2, "classic", 30, true);
+        run_vkcube(root, wsi, true, Some("30"), 2, "ascii", 30, true);
     let capped_log = format!(
         "{}\n{}\n{}",
         String::from_utf8_lossy(&capped_output.stdout),

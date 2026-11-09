@@ -2,7 +2,9 @@ use crate::layer::auto::adjust_hysteresis_percent;
 use crate::layer::config::Hotkey;
 use crate::layer::diagnostics;
 use crate::layer::limiter::FrameCapController;
-use crate::layer::renderer::{OverlayFeedbackEvent, OverlayFeedbackState, OverlayModeState};
+use crate::layer::renderer::{
+    OverlayFeedbackEvent, OverlayFeedbackState, OverlayModeState, OverlayRendererState,
+};
 use libloading::Library;
 use parking_lot::Mutex;
 use std::ffi::{c_char, c_int, c_long, c_uint, c_ulong};
@@ -15,6 +17,7 @@ use std::time::Duration;
 
 const KEY_PRESS: c_int = 2;
 const KEY_RELEASE: c_int = 3;
+const LONG_PRESS_MS: u32 = 1000;
 const MODE_OFF: i32 = -1;
 const MODE_MANUAL: i32 = 0;
 const GRAB_MODE_ASYNC: c_int = 1;
@@ -214,6 +217,7 @@ impl X11 {
 struct HotkeyTarget {
     controller: Arc<FrameCapController>,
     overlay_mode: Arc<OverlayModeState>,
+    overlay_renderer: Arc<OverlayRendererState>,
     active_auto_algorithm: Arc<AtomicI32>,
     auto_hysteresis_percent: Arc<Vec<AtomicU32>>,
     manual_step_fps: f32,
@@ -251,6 +255,7 @@ impl HotkeyWorker {
         toggle_key: Hotkey,
         controller: Arc<FrameCapController>,
         overlay_mode: Arc<OverlayModeState>,
+        overlay_renderer: Arc<OverlayRendererState>,
         active_auto_algorithm: Arc<AtomicI32>,
         auto_hysteresis_percent: Arc<Vec<AtomicU32>>,
         manual_step_fps: f32,
@@ -263,6 +268,7 @@ impl HotkeyWorker {
         let target = Arc::new(HotkeyTarget {
             controller,
             overlay_mode,
+            overlay_renderer,
             active_auto_algorithm,
             auto_hysteresis_percent,
             manual_step_fps,
@@ -390,7 +396,7 @@ fn run_listener(stop: Arc<AtomicBool>) -> Result<(), String> {
     }
     diagnostics::info("Framecap: process-wide X11 hotkey listener active (F9/F10/F11/F12)");
 
-    let mut pressed = [false; 4];
+    let mut pressed = [None; 4];
     while !stop.load(Ordering::Relaxed) {
         if unsafe { (x11.pending)(display) } == 0 {
             thread::sleep(Duration::from_millis(5));
@@ -410,9 +416,9 @@ fn run_listener(stop: Arc<AtomicBool>) -> Result<(), String> {
             continue;
         };
 
-        if key.type_ == KEY_PRESS && !pressed[index] {
-            pressed[index] = true;
-            dispatch_hotkey(hotkeys[index]);
+        if key.type_ == KEY_PRESS && pressed[index].is_none() {
+            pressed[index] = Some(key.time as u32);
+            dispatch_hotkey(hotkeys[index], HotkeyEvent::Press);
         } else if key.type_ == KEY_RELEASE {
             let mut next_event = MaybeUninit::<XEvent>::uninit();
             if unsafe { (x11.pending)(display) } > 0 {
@@ -431,7 +437,15 @@ fn run_listener(stop: Arc<AtomicBool>) -> Result<(), String> {
                     continue;
                 }
             }
-            pressed[index] = false;
+            if let Some(start) = pressed[index].take() {
+                let elapsed = (key.time as u32).wrapping_sub(start);
+                dispatch_hotkey(
+                    hotkeys[index],
+                    HotkeyEvent::Release {
+                        elapsed_ms: elapsed,
+                    },
+                );
+            }
         }
     }
 
@@ -448,7 +462,13 @@ fn run_listener(stop: Arc<AtomicBool>) -> Result<(), String> {
 }
 
 /// Applies the matching configured action to every active Vulkan device.
-fn dispatch_hotkey(hotkey: Hotkey) {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum HotkeyEvent {
+    Press,
+    Release { elapsed_ms: u32 },
+}
+
+fn dispatch_hotkey(hotkey: Hotkey, event: HotkeyEvent) {
     let targets = {
         let mut manager = hotkey_manager().lock();
         let mut targets = Vec::with_capacity(manager.targets.len());
@@ -464,8 +484,24 @@ fn dispatch_hotkey(hotkey: Hotkey) {
     };
 
     for target in targets {
-        if let Some(action) = configured_action(&target.hotkeys, hotkey) {
-            dispatch_action(&target, action, hotkey);
+        dispatch_to_target(&target, hotkey, event);
+    }
+}
+
+fn dispatch_to_target(target: &HotkeyTarget, hotkey: Hotkey, event: HotkeyEvent) {
+    if let Some(action) = configured_action(&target.hotkeys, hotkey) {
+        match (action, event) {
+            (3, HotkeyEvent::Release { elapsed_ms }) if elapsed_ms >= LONG_PRESS_MS => {
+                target
+                    .overlay_feedback
+                    .record(OverlayFeedbackEvent::HotkeyPressed(hotkey));
+                let renderer = target.overlay_renderer.toggle();
+                diagnostics::info(format!("[CONTROL] Overlay renderer {renderer:?}"));
+            }
+            (3, HotkeyEvent::Release { .. }) | (0..=2, HotkeyEvent::Press) => {
+                dispatch_action(target, action, hotkey);
+            }
+            _ => {}
         }
     }
 }
@@ -614,6 +650,60 @@ mod tests {
         assert_eq!(configured_action(&hotkeys, Hotkey::F12), Some(1));
         assert_eq!(configured_action(&hotkeys, Hotkey::F9), Some(2));
         assert_eq!(configured_action(&hotkeys, Hotkey::F11), Some(3));
+    }
+
+    #[test]
+    fn overlay_hotkey_short_and_long_presses_are_independent() {
+        use crate::layer::renderer::OverlayMode;
+        use crate::layer::settings::OverlayRenderer;
+
+        let target = HotkeyTarget {
+            controller: Arc::new(FrameCapController::new(Some(60.0))),
+            overlay_mode: Arc::new(OverlayModeState::new(2)),
+            overlay_renderer: Arc::new(OverlayRendererState::new(OverlayRenderer::Modern)),
+            active_auto_algorithm: Arc::new(AtomicI32::new(0)),
+            auto_hysteresis_percent: Arc::new(Vec::new()),
+            manual_step_fps: 5.0,
+            overlay_feedback: Arc::new(OverlayFeedbackState::new()),
+            hotkeys: [Hotkey::F10, Hotkey::F12, Hotkey::F9, Hotkey::F11],
+        };
+        let press = |event| dispatch_to_target(&target, Hotkey::F11, event);
+        press(HotkeyEvent::Press);
+        assert_eq!(target.overlay_mode.mode(), OverlayMode::Full);
+        press(HotkeyEvent::Release {
+            elapsed_ms: LONG_PRESS_MS - 1,
+        });
+        assert_eq!(target.overlay_mode.mode(), OverlayMode::Fps);
+        assert_eq!(target.overlay_renderer.current(), OverlayRenderer::Modern);
+
+        press(HotkeyEvent::Press);
+        press(HotkeyEvent::Release {
+            elapsed_ms: LONG_PRESS_MS,
+        });
+        assert_eq!(target.overlay_mode.mode(), OverlayMode::Fps);
+        assert_eq!(target.overlay_renderer.current(), OverlayRenderer::Ascii);
+        assert_eq!(
+            target
+                .overlay_feedback
+                .current(std::time::Instant::now())
+                .hotkey,
+            Some(Hotkey::F11)
+        );
+
+        press(HotkeyEvent::Release { elapsed_ms: 10 });
+        assert_eq!(target.overlay_mode.mode(), OverlayMode::Off);
+        press(HotkeyEvent::Release { elapsed_ms: 2000 });
+        assert_eq!(target.overlay_mode.mode(), OverlayMode::Off);
+        assert_eq!(target.overlay_renderer.current(), OverlayRenderer::Modern);
+
+        dispatch_to_target(&target, Hotkey::F12, HotkeyEvent::Press);
+        dispatch_to_target(
+            &target,
+            Hotkey::F12,
+            HotkeyEvent::Release { elapsed_ms: 2000 },
+        );
+        assert_eq!(target.controller.target_fps(), Some(65.0));
+        assert_eq!(target.overlay_renderer.current(), OverlayRenderer::Modern);
     }
 
     #[test]

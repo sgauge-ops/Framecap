@@ -1,8 +1,9 @@
 # Overlay specification
 
-`[overlay].renderer` selects `dashboard` for a graphical dashboard or `classic`
-for the original text layout. The built-in default is `classic`; the supplied
-configuration selects `dashboard`. Both use the same data and controls.
+`[overlay].renderer` selects `modern` for a graphical dashboard or `ascii`
+for the original text layout. The built-in default is `ascii`; the supplied
+configuration selects `modern`. Both use the same data and controls. Existing
+configurations must replace `dashboard` with `modern` and `classic` with `ascii`.
 The dashboard displays FPS, 10% low and jitter prominently, followed by mode,
 cap, hysteresis, target, hardware readings and key hints. It uses the bundled
 Fira Sans font (see `src/layer/fonts/OFL.txt`), with antialiased text and
@@ -10,25 +11,35 @@ rounded, shaded panels, keycaps and mode badge. The dashboard has a gray
 outline; its background opacity is configurable independently of the outline
 and text. Very long values are reduced in size or ellipsized within their
 cells. At small swapchain sizes, the dashboard is clipped to the available
-area. It is rendered at 2× when the swapchain width reaches
-`[overlay].scale_2x_min_width_px` and the whole dashboard fits at that scale.
+area. The full dashboard measures 370 × 215 pixels at 1×. It is rendered at
+2× when the swapchain width reaches
+`[overlay].scale_2x_min_width_px` (default: 3840 px) and the whole dashboard
+fits at that scale.
 In the full dashboard, the FPS label follows the displayed value and moves as
 its width changes.
-An unknown renderer name rejects the configuration file. Changing the renderer
-requires an application restart.
+An unknown renderer name rejects the configuration file. The configured
+renderer is selected at application startup.
 
-The classic overlay presents:
+The ascii overlay presents:
 
 ```text
-MANUAL:  [F9] CYCLE MODE  | [F10]  -5 FPS    | [F11]  +5 FPS    | [F12] CYCLE OSD
-AUTO:    [F9] CYCLE MODE  | [F10]  -1 %      | [F11]  +1 %      | [F12] CYCLE OSD
-         MODE: AUTO (JIT) | CAP:     60 FPS  | HYS:   5.0 %     | TARGET: 60 FPS
          FPS:   60        | 10% LOW: 55 FPS  | JIT:   0.5 MS    |
+-----------------------------------------------------------------
+         MODE: AUTO (JIT) | CAP:     60 FPS  | HYS:   5.0 %     | TARGET: 60 FPS
+-----------------------------------------------------------------
          GPU:   43 °C     | VRM:   57 °C     | Load:   55 %     | PPT:  32.6 W
          CPU:   70 °C     | VRM:   61 °C     | Load:   35 %     | RPM:  1240 RPM
+-----------------------------------------------------------------
+MANUAL:  [F9] CYCLE MODE  | [F10]  -5 FPS    | [F11]  +5 FPS    | [F12] CYCLE OSD
+AUTO:    [F9] CYCLE MODE  | [F10]  -1 %      | [F11]  +1 %      | [F12] CYCLE OSD
 ```
 
-F12 cycles full overlay → FPS only → off → full overlay. FPS-only mode
+On release, a short press of F12 cycles full overlay → FPS only → off → full
+overlay; holding it for at least one second switches between `modern` and
+`ascii` without changing the display mode. The same applies to a custom
+`[key-bindings].hotkey_toggle`. The renderer switch is temporary and is not
+written to the configuration file; it also works while the overlay is hidden.
+FPS-only mode
 shows just the FPS measurement (or `COLLECT` while collecting) with its own
 background. `[overlay].startup` selects the initial mode: `0` off,
 `1` FPS only, `2` full overlay (built-in default). These display modes do not

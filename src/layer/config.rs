@@ -182,8 +182,11 @@ impl Config {
                 1000
             }
         };
-        let scale_2x_min_width_px =
-            positive_u32_or_default(overlay.scale_2x_min_width_px, "scale_2x_min_width_px", 3440);
+        let scale_2x_min_width_px = positive_u32_or_default(
+            overlay.scale_2x_min_width_px,
+            "scale_2x_min_width_px",
+            settings::OverlaySettings::default().scale_2x_min_width_px,
+        );
         let gpu_threshold_settings = auto
             .algorithms
             .iter()
@@ -281,8 +284,12 @@ mod scale_threshold_tests {
     #[test]
     fn zero_scale_threshold_uses_the_default() {
         assert_eq!(
-            positive_u32_or_default(0, "scale_2x_min_width_px", 3440),
-            3440
+            positive_u32_or_default(
+                0,
+                "scale_2x_min_width_px",
+                settings::OverlaySettings::default().scale_2x_min_width_px
+            ),
+            3840
         );
     }
 

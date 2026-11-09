@@ -59,8 +59,8 @@ pub struct OverlaySettings {
 #[serde(rename_all = "snake_case")]
 pub enum OverlayRenderer {
     #[default]
-    Classic,
-    Dashboard,
+    Ascii,
+    Modern,
 }
 
 impl Default for OverlaySettings {
@@ -70,7 +70,7 @@ impl Default for OverlaySettings {
             renderer: OverlayRenderer::default(),
             refresh_rate: 10,
             gpu_smoothing_window_ms: 1000,
-            scale_2x_min_width_px: 3440,
+            scale_2x_min_width_px: 3840,
             background_opacity: 0.25,
             fps_color: [255, 255, 0],
             startup: 2,
@@ -693,19 +693,21 @@ mod tests {
 
     #[test]
     fn overlay_renderer_is_opt_in_and_rejects_unknown_values() {
-        assert_eq!(
-            Settings::default().overlay.renderer,
-            OverlayRenderer::Classic
-        );
+        assert_eq!(Settings::default().overlay.renderer, OverlayRenderer::Ascii);
         for (value, expected) in [
-            ("classic", OverlayRenderer::Classic),
-            ("dashboard", OverlayRenderer::Dashboard),
+            ("ascii", OverlayRenderer::Ascii),
+            ("modern", OverlayRenderer::Modern),
         ] {
             let settings: RawSettings =
                 toml::from_str(&format!("[overlay]\nrenderer = \"{value}\"")).unwrap();
             assert_eq!(settings.overlay.renderer, Some(expected));
         }
-        assert!(toml::from_str::<RawSettings>("[overlay]\nrenderer = \"other\"").is_err());
+        for value in ["classic", "dashboard", "other"] {
+            assert!(
+                toml::from_str::<RawSettings>(&format!("[overlay]\nrenderer = \"{value}\""))
+                    .is_err()
+            );
+        }
     }
 
     #[test]
@@ -731,8 +733,8 @@ mod tests {
 
     #[test]
     /// Checks the built-in and configured 2x overlay width threshold.
-    fn overlay_scale_threshold_defaults_to_3440_and_is_configurable() {
-        assert_eq!(Settings::default().overlay.scale_2x_min_width_px, 3440);
+    fn overlay_scale_threshold_defaults_to_3840_and_is_configurable() {
+        assert_eq!(Settings::default().overlay.scale_2x_min_width_px, 3840);
 
         let settings: RawSettings =
             toml::from_str("[overlay]\nscale_2x_min_width_px = 2560").unwrap();
@@ -888,6 +890,7 @@ mod tests {
     /// Checks that the shipped example parses with its active GPU and jitter thresholds.
     fn shipped_configuration_parses_gpu_and_jitter_thresholds() {
         let settings: RawSettings = toml::from_str(include_str!("../../framecap.toml")).unwrap();
+        assert_eq!(settings.overlay.renderer, Some(OverlayRenderer::Modern));
         let gpu_threshold = settings
             .auto_mode
             .algorithms

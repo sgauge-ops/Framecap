@@ -16,12 +16,14 @@ Framecap offers the following modes, that can be cycled-through via [F9] (by def
 
 The automatic algorithms are still experimental and being fine-tuned. Your feedback is welcome.
 
-F12 cycles Framecap's overlay through full, FPS only, and off. Background logic (mode dependent) remains active when the overlay is hidden.
+A short F12 press cycles the overlay through full, FPS only, and off. Holding
+F12 for at least one second switches between the `modern` and `ascii` renderers
+on release. Background logic remains active when the overlay is hidden.
 
 Framecap's behavior is largely configurable in `framecap.toml`
 
-The supplied configuration selects the graphical dashboard. Set
-`[overlay].renderer = "classic"` to use the original text overlay instead;
+The supplied configuration selects the graphical dashboard (`modern`). Set
+`[overlay].renderer = "ascii"` to use the original text overlay instead;
 both layouts retain the same F12 display modes and controls.
 
 # Short installation guide

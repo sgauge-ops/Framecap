@@ -1,13 +1,18 @@
 # Changelog
 
 Changes are grouped under Unreleased until a release is made.
-Dates reflect the first available Git record, not necessarily when development
-originally took place.
+Dates reflect the first available Git record or the date of unreleased local
+changes, not necessarily when development originally took place.
 
 ## Unreleased
 
 | Date | Changes |
 | --- | --- |
+| 2026-11-09 | Added a long press of the overlay shortcut (F12 by default) to switch temporarily between `modern` and `ascii`, including while hidden; a short press still cycles display modes. |
+| 2026-11-09 | Renamed the `[overlay].renderer` values from `dashboard` to `modern` and from `classic` to `ascii`; existing configurations must be updated. |
+| 2026-11-09 | Made the modern overlay more compact, reducing its full layout to 370 × 215 pixels at 1× and positioning the FPS label next to the displayed value. |
+| 2026-11-09 | Reorganized the ASCII overlay to match the modern layout, with metrics first, hardware readings and shortcuts below, and horizontal separators. |
+| 2026-11-09 | Raised the default `[overlay].scale_2x_min_width_px` from 3440 to 3840 pixels. |
 | 2026-11-08 | Made the FPS value yellow by default, with a configurable RGB color in `[overlay].fps_color`. |
 | 2026-11-08 | Added full, FPS-only, and off overlay modes, cycled with F12 and selectable at startup. |
 | 2026-11-08 | Added the active automatic algorithm's target and unit to the overlay status row. |

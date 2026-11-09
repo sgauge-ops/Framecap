@@ -4,6 +4,7 @@ use crate::layer::settings::OverlayRenderer;
 use ash::vk;
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 #[path = "dashboard.rs"]
@@ -23,6 +24,33 @@ pub enum OverlayMode {
 }
 
 pub struct OverlayModeState(AtomicU8);
+
+pub struct OverlayRendererState(AtomicU8);
+
+impl OverlayRendererState {
+    pub fn new(renderer: OverlayRenderer) -> Self {
+        Self(AtomicU8::new(match renderer {
+            OverlayRenderer::Ascii => 0,
+            OverlayRenderer::Modern => 1,
+        }))
+    }
+
+    pub fn current(&self) -> OverlayRenderer {
+        match self.0.load(Ordering::Relaxed) {
+            0 => OverlayRenderer::Ascii,
+            1 => OverlayRenderer::Modern,
+            _ => unreachable!("invalid overlay renderer"),
+        }
+    }
+
+    pub fn toggle(&self) -> OverlayRenderer {
+        match self.0.fetch_xor(1, Ordering::Relaxed) {
+            0 => OverlayRenderer::Modern,
+            1 => OverlayRenderer::Ascii,
+            _ => unreachable!("invalid overlay renderer"),
+        }
+    }
+}
 
 impl OverlayModeState {
     pub fn new(startup: u8) -> Self {
@@ -525,7 +553,7 @@ struct ImageResources {
 pub struct VulkanSwapchainRenderer {
     extent: vk::Extent2D,
     background_opacity: f32,
-    renderer: OverlayRenderer,
+    renderer: Arc<OverlayRendererState>,
     fps_color: [u8; 3],
     scale_2x_min_width_px: u32,
     overlay_refresh_rate: u64,
@@ -535,6 +563,8 @@ pub struct VulkanSwapchainRenderer {
     render_pass: vk::RenderPass,
     background_pipeline_layout: vk::PipelineLayout,
     background_pipeline: vk::Pipeline,
+    modern_pipeline_layout: vk::PipelineLayout,
+    modern_pipeline: vk::Pipeline,
     images: Vec<ImageResources>,
     command_pool: vk::CommandPool,
     command_buffers: Vec<vk::CommandBuffer>,
@@ -658,12 +688,12 @@ fn create_background_pipeline(
     renderer: OverlayRenderer,
 ) -> Result<(vk::PipelineLayout, vk::Pipeline), vk::Result> {
     let (vertex_bytes, fragment_bytes, push_size): (&[u8], &[u8], u32) = match renderer {
-        OverlayRenderer::Classic => (
+        OverlayRenderer::Ascii => (
             include_bytes!("shaders/overlay_background.vert.spv"),
             include_bytes!("shaders/overlay_background.frag.spv"),
             20,
         ),
-        OverlayRenderer::Dashboard => (
+        OverlayRenderer::Modern => (
             include_bytes!("shaders/dashboard.vert.spv"),
             include_bytes!("shaders/dashboard.frag.spv"),
             128,
@@ -788,7 +818,7 @@ impl VulkanSwapchainRenderer {
         minimum_collection_interval: Duration,
         overlay_refresh_rate: u64,
         background_opacity: f32,
-        renderer: OverlayRenderer,
+        renderer: Arc<OverlayRendererState>,
         fps_color: [u8; 3],
         scale_2x_min_width_px: u32,
     ) -> Result<Self, vk::Result> {
@@ -812,13 +842,33 @@ impl VulkanSwapchainRenderer {
             .subpasses(&subpass);
         let render_pass = unsafe { device.create_render_pass(&render_pass_info, None)? };
         let (background_pipeline_layout, background_pipeline) =
-            match create_background_pipeline(device, render_pass, extent, renderer) {
+            match create_background_pipeline(device, render_pass, extent, OverlayRenderer::Ascii) {
                 Ok(pipeline) => pipeline,
                 Err(error) => {
                     unsafe { device.destroy_render_pass(render_pass, None) };
                     return Err(error);
                 }
             };
+        let (modern_pipeline_layout, modern_pipeline) = match create_background_pipeline(
+            device,
+            render_pass,
+            extent,
+            OverlayRenderer::Modern,
+        ) {
+            Ok(pipeline) => pipeline,
+            Err(error) => {
+                Self::destroy_partial(
+                    device,
+                    render_pass,
+                    background_pipeline_layout,
+                    background_pipeline,
+                    vk::PipelineLayout::null(),
+                    vk::Pipeline::null(),
+                    &[],
+                );
+                return Err(error);
+            }
+        };
         let mut images = Vec::with_capacity(swapchain_images.len());
 
         for &image in swapchain_images {
@@ -842,6 +892,8 @@ impl VulkanSwapchainRenderer {
                         render_pass,
                         background_pipeline_layout,
                         background_pipeline,
+                        modern_pipeline_layout,
+                        modern_pipeline,
                         &images,
                     );
                     return Err(error);
@@ -862,6 +914,8 @@ impl VulkanSwapchainRenderer {
                         render_pass,
                         background_pipeline_layout,
                         background_pipeline,
+                        modern_pipeline_layout,
+                        modern_pipeline,
                         &images,
                     );
                     return Err(error);
@@ -881,6 +935,8 @@ impl VulkanSwapchainRenderer {
                             render_pass,
                             background_pipeline_layout,
                             background_pipeline,
+                            modern_pipeline_layout,
+                            modern_pipeline,
                             &images,
                         );
                         return Err(error);
@@ -907,6 +963,8 @@ impl VulkanSwapchainRenderer {
             render_pass,
             background_pipeline_layout,
             background_pipeline,
+            modern_pipeline_layout,
+            modern_pipeline,
             images,
             command_pool: vk::CommandPool::null(),
             command_buffers: Vec::new(),
@@ -925,11 +983,17 @@ impl VulkanSwapchainRenderer {
         render_pass: vk::RenderPass,
         background_pipeline_layout: vk::PipelineLayout,
         background_pipeline: vk::Pipeline,
+        modern_pipeline_layout: vk::PipelineLayout,
+        modern_pipeline: vk::Pipeline,
         images: &[ImageResources],
     ) {
         unsafe {
             device.destroy_pipeline(background_pipeline, None);
             device.destroy_pipeline_layout(background_pipeline_layout, None);
+            if modern_pipeline != vk::Pipeline::null() {
+                device.destroy_pipeline(modern_pipeline, None);
+                device.destroy_pipeline_layout(modern_pipeline_layout, None);
+            }
             for image in images {
                 device.destroy_semaphore(image.signal, None);
                 device.destroy_framebuffer(image.framebuffer, None);
@@ -947,6 +1011,8 @@ impl VulkanSwapchainRenderer {
             }
             device.destroy_pipeline(self.background_pipeline, None);
             device.destroy_pipeline_layout(self.background_pipeline_layout, None);
+            device.destroy_pipeline(self.modern_pipeline, None);
+            device.destroy_pipeline_layout(self.modern_pipeline_layout, None);
             for image in &self.images {
                 device.destroy_semaphore(image.signal, None);
                 device.destroy_framebuffer(image.framebuffer, None);
@@ -1086,7 +1152,7 @@ impl VulkanSwapchainRenderer {
             device.cmd_begin_render_pass(command_buffer, &render_begin, vk::SubpassContents::INLINE)
         };
 
-        if self.renderer == OverlayRenderer::Dashboard {
+        if self.renderer.current() == OverlayRenderer::Modern {
             let key = dashboard::DashboardKey {
                 timestamp: metrics.timestamp(),
                 mode: overlay_mode,
@@ -1125,8 +1191,8 @@ impl VulkanSwapchainRenderer {
                 device,
                 command_buffer,
                 self.extent,
-                self.background_pipeline,
-                self.background_pipeline_layout,
+                self.modern_pipeline,
+                self.modern_pipeline_layout,
                 self.background_opacity,
                 self.fps_color,
             );
@@ -1177,18 +1243,37 @@ impl VulkanSwapchainRenderer {
             .unwrap_or_default();
             let scale =
                 overlay_text_scale(self.extent.width, self.scale_2x_min_width_px, widest_line);
-            let target_scale = scale;
-            let status_top = 8 + 7 * target_scale + 3;
-            let metrics_top = if full {
-                status_top + 7 * target_scale + 3
-            } else {
-                8
-            };
-            let row_step = 7 * scale + 3;
-            let gpu_sensor_top = metrics_top + row_step;
-            let cpu_sensor_top = gpu_sensor_top + row_step;
+            let metrics_top = 8;
+            let line_height = scale;
+            let line_step = 7 * scale + 3;
+            let (status_top, gpu_sensor_top, cpu_sensor_top, target_top, bottom_row_top, line_tops) =
+                if full {
+                    let sep1_top = metrics_top + 7 * scale + 2 * scale;
+                    let status_top = sep1_top + line_height + 3 * scale;
+                    let sep2_top = status_top + 7 * scale + 2 * scale;
+                    let gpu_sensor_top = sep2_top + line_height + 3 * scale;
+                    let cpu_sensor_top = gpu_sensor_top + line_step;
+                    let sep3_top = cpu_sensor_top + 7 * scale + 2 * scale;
+                    let target_top = sep3_top + line_height + 3 * scale;
+                    (
+                        status_top,
+                        gpu_sensor_top,
+                        cpu_sensor_top,
+                        target_top,
+                        target_top,
+                        vec![sep1_top, sep2_top, sep3_top],
+                    )
+                } else {
+                    (
+                        metrics_top,
+                        metrics_top,
+                        metrics_top,
+                        metrics_top,
+                        metrics_top,
+                        Vec::new(),
+                    )
+                };
             let background_width = (widest_line * 6 * scale + 20).min(self.extent.width);
-            let bottom_row_top = if full { cpu_sensor_top } else { metrics_top };
             let background_height = (bottom_row_top + 7 * scale + 8).min(self.extent.height);
             if self.background_opacity > 0.0 {
                 let rect = [
@@ -1221,11 +1306,41 @@ impl VulkanSwapchainRenderer {
                 }
             }
 
-            let metric_rectangles = [
-                (&text, metrics_top),
-                (&gpu_sensor_text, gpu_sensor_top),
-                (&cpu_sensor_text, cpu_sensor_top),
-            ]
+            let separator_rectangles = if full {
+                let line_width =
+                    (widest_line * 6 * scale).min(self.extent.width.saturating_sub(16));
+                line_tops
+                    .into_iter()
+                    .map(|top| {
+                        vk::ClearRect::default()
+                            .rect(
+                                vk::Rect2D::default()
+                                    .offset(vk::Offset2D {
+                                        x: 8,
+                                        y: top as i32,
+                                    })
+                                    .extent(vk::Extent2D {
+                                        width: line_width,
+                                        height: line_height,
+                                    }),
+                            )
+                            .base_array_layer(0)
+                            .layer_count(1)
+                    })
+                    .collect::<Vec<_>>()
+            } else {
+                Vec::new()
+            };
+
+            let metric_rectangles = if full {
+                vec![
+                    (&text, metrics_top),
+                    (&gpu_sensor_text, gpu_sensor_top),
+                    (&cpu_sensor_text, cpu_sensor_top),
+                ]
+            } else {
+                vec![(&text, metrics_top)]
+            }
             .into_iter()
             .flat_map(|(line, top)| {
                 Renderer::text_rects_at(line, [self.extent.width, self.extent.height], scale, top)
@@ -1272,12 +1387,16 @@ impl VulkanSwapchainRenderer {
                     .layer_count(1)
             })
             .collect::<Vec<_>>();
-            let target_rectangles = Renderer::text_rects_at(
-                &target_text,
-                [self.extent.width, self.extent.height],
-                target_scale,
-                8,
-            )
+            let target_rectangles = if full {
+                Renderer::text_rects_at(
+                    &target_text,
+                    [self.extent.width, self.extent.height],
+                    scale,
+                    target_top,
+                )
+            } else {
+                Vec::new()
+            }
             .into_iter()
             .map(|rect| {
                 vk::ClearRect::default()
@@ -1296,12 +1415,16 @@ impl VulkanSwapchainRenderer {
                     .layer_count(1)
             })
             .collect::<Vec<_>>();
-            let status_rectangles = Renderer::text_rects_at(
-                &status_text,
-                [self.extent.width, self.extent.height],
-                target_scale,
-                status_top,
-            )
+            let status_rectangles = if full {
+                Renderer::text_rects_at(
+                    &status_text,
+                    [self.extent.width, self.extent.height],
+                    scale,
+                    status_top,
+                )
+            } else {
+                Vec::new()
+            }
             .into_iter()
             .map(|rect| {
                 vk::ClearRect::default()
@@ -1320,42 +1443,46 @@ impl VulkanSwapchainRenderer {
                     .layer_count(1)
             })
             .collect::<Vec<_>>();
-            let target_feedback_rectangles = feedback
-                .hotkey
-                .map(|hotkey| {
-                    Renderer::feedback_rects(
-                        &target_text,
-                        [self.extent.width, self.extent.height],
-                        target_scale,
-                        8,
-                        &format!("[{}]", hotkey.label()),
-                    )
-                })
-                .unwrap_or_default()
-                .into_iter()
-                .map(|rect| {
-                    vk::ClearRect::default()
-                        .rect(
-                            vk::Rect2D::default()
-                                .offset(vk::Offset2D {
-                                    x: rect.x as i32,
-                                    y: rect.y as i32,
-                                })
-                                .extent(vk::Extent2D {
-                                    width: rect.width,
-                                    height: rect.height,
-                                }),
+            let target_feedback_rectangles = if full {
+                feedback
+                    .hotkey
+                    .map(|hotkey| {
+                        Renderer::feedback_rects(
+                            &target_text,
+                            [self.extent.width, self.extent.height],
+                            scale,
+                            target_top,
+                            &format!("[{}]", hotkey.label()),
                         )
-                        .base_array_layer(0)
-                        .layer_count(1)
-                })
-                .collect::<Vec<_>>();
+                    })
+                    .unwrap_or_default()
+            } else {
+                Vec::new()
+            }
+            .into_iter()
+            .map(|rect| {
+                vk::ClearRect::default()
+                    .rect(
+                        vk::Rect2D::default()
+                            .offset(vk::Offset2D {
+                                x: rect.x as i32,
+                                y: rect.y as i32,
+                            })
+                            .extent(vk::Extent2D {
+                                width: rect.width,
+                                height: rect.height,
+                            }),
+                    )
+                    .base_array_layer(0)
+                    .layer_count(1)
+            })
+            .collect::<Vec<_>>();
             let mut status_feedback_rectangles = Vec::new();
             if feedback.cap_changed {
                 status_feedback_rectangles.extend(Renderer::feedback_rects(
                     &status_text,
                     [self.extent.width, self.extent.height],
-                    target_scale,
+                    scale,
                     status_top,
                     &format!(
                         "CAP: {:>6} FPS",
@@ -1369,7 +1496,7 @@ impl VulkanSwapchainRenderer {
                 status_feedback_rectangles.extend(Renderer::feedback_rects(
                     &status_text,
                     [self.extent.width, self.extent.height],
-                    target_scale,
+                    scale,
                     status_top,
                     &format!("HYS: {:>5.1} %", hysteresis_percent.unwrap_or_default()),
                 ));
@@ -1402,6 +1529,21 @@ impl VulkanSwapchainRenderer {
                     },
                 })];
             unsafe {
+                if !separator_rectangles.is_empty() {
+                    let separator_foreground = [vk::ClearAttachment::default()
+                        .aspect_mask(vk::ImageAspectFlags::COLOR)
+                        .color_attachment(0)
+                        .clear_value(vk::ClearValue {
+                            color: vk::ClearColorValue {
+                                float32: [0.28, 0.33, 0.39, 1.0],
+                            },
+                        })];
+                    device.cmd_clear_attachments(
+                        command_buffer,
+                        &separator_foreground,
+                        &separator_rectangles,
+                    );
+                }
                 if !metric_rectangles.is_empty() {
                     device.cmd_clear_attachments(command_buffer, &foreground, &metric_rectangles);
                 }
@@ -1434,18 +1576,18 @@ impl VulkanSwapchainRenderer {
                             float32: [0.35, 0.85, 1.0, 1.0],
                         },
                     })];
-                if !target_rectangles.is_empty() {
-                    device.cmd_clear_attachments(
-                        command_buffer,
-                        &target_foreground,
-                        &target_rectangles,
-                    );
-                }
                 if !status_rectangles.is_empty() {
                     device.cmd_clear_attachments(
                         command_buffer,
                         &status_foreground,
                         &status_rectangles,
+                    );
+                }
+                if !target_rectangles.is_empty() {
+                    device.cmd_clear_attachments(
+                        command_buffer,
+                        &target_foreground,
+                        &target_rectangles,
                     );
                 }
                 let feedback_foreground = [vk::ClearAttachment::default()
@@ -1608,9 +1750,9 @@ mod tests {
     #[test]
     /// Checks the configured threshold and ensures doubled text remains within the swapchain.
     fn overlay_text_scale_obeys_threshold_and_fit() {
-        assert_eq!(overlay_text_scale(3439, 3440, 100), 1);
-        assert_eq!(overlay_text_scale(3440, 3440, 100), 2);
-        assert_eq!(overlay_text_scale(3440, 3440, 320), 1);
+        assert_eq!(overlay_text_scale(3839, 3840, 100), 1);
+        assert_eq!(overlay_text_scale(3840, 3840, 100), 2);
+        assert_eq!(overlay_text_scale(3840, 3840, 320), 1);
     }
 
     #[test]
@@ -2080,5 +2222,33 @@ mod tests {
         assert!(independently_expired.cap_changed && independently_expired.hysteresis_changed);
         let expired = feedback.current(later + FEEDBACK_VISIBLE_FOR + Duration::from_millis(1));
         assert_eq!(expired, OverlayFeedback::default());
+    }
+
+    #[test]
+    /// Checks that the ascii overlay sections and separators are strictly ordered vertically.
+    fn ascii_overlay_sections_and_separators_do_not_overlap() {
+        for scale in [1, 2] {
+            let metrics_top = 8;
+            let line_height = scale;
+            let line_step = 7 * scale + 3;
+            let sep1_top = metrics_top + 7 * scale + 2 * scale;
+            let status_top = sep1_top + line_height + 3 * scale;
+            let sep2_top = status_top + 7 * scale + 2 * scale;
+            let gpu_sensor_top = sep2_top + line_height + 3 * scale;
+            let cpu_sensor_top = gpu_sensor_top + line_step;
+            let sep3_top = cpu_sensor_top + 7 * scale + 2 * scale;
+            let target_top = sep3_top + line_height + 3 * scale;
+            let bottom_row_top = target_top;
+            let background_height = bottom_row_top + 7 * scale + 8;
+
+            assert!(metrics_top + 7 * scale < sep1_top);
+            assert!(sep1_top + line_height < status_top);
+            assert!(status_top + 7 * scale < sep2_top);
+            assert!(sep2_top + line_height < gpu_sensor_top);
+            assert!(gpu_sensor_top + 7 * scale < cpu_sensor_top);
+            assert!(cpu_sensor_top + 7 * scale < sep3_top);
+            assert!(sep3_top + line_height < target_top);
+            assert!(target_top + 7 * scale < background_height);
+        }
     }
 }

@@ -73,7 +73,10 @@ are obsolete and do not control the current algorithms.
 
 The defaults are F9 to cycle manual, configured automatic algorithms, OFF,
 then manual; F10/F11 decrease/increase the manual cap or active automatic
-hysteresis; F12 cycles the overlay through full, FPS only, and off. Limiter
+hysteresis; a short F12 press cycles the overlay through full, FPS only, and off.
+Holding F12 for at least one second switches between `modern` and `ascii` on
+release without changing the display mode. The switch is temporary and also
+uses the configured `hotkey_toggle` if reassigned. Limiter
 OFF remembers the previous cap.
 All shortcuts are configurable and must be distinct. They require X11/XWayland
 and may prevent the application from receiving those keys. Native Wayland has no

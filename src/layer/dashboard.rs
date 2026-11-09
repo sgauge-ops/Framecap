@@ -3,8 +3,8 @@ use fontdue::{Font, FontSettings, Metrics};
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 
-const WIDTH: u32 = 415;
-const HEIGHT: u32 = 260;
+const WIDTH: u32 = 370;
+const HEIGHT: u32 = 215;
 const FPS_VALUE_WIDTH: u32 = 94;
 const FPS_LABEL_GAP: u32 = 6;
 const LABEL: usize = 0;
@@ -498,13 +498,13 @@ pub(super) fn layout(
     let fps_right = dashboard.text(
         &fps,
         16,
-        27,
+        24,
         if fps == "COLLECT" { 20 } else { 36 },
         FPS_VALUE_WIDTH,
         true,
         ACCENT,
     );
-    dashboard.text("FPS", fps_right + FPS_LABEL_GAP, 48, 14, 30, true, VALUE);
+    dashboard.text("FPS", fps_right + FPS_LABEL_GAP, 45, 14, 30, true, VALUE);
     let low = metrics.low_10_fps();
     let low = if low.is_finite() && low >= 0.0 {
         format!("{low:.0} FPS")
@@ -517,18 +517,18 @@ pub(super) fn layout(
     } else {
         "COLLECT".to_owned()
     };
-    for (x, width, label, value) in [(150, 110, "10% LOW", low), (269, 130, "JITTER", jitter)] {
-        dashboard.text(label, x, 29, 12, width, true, LABEL);
-        dashboard.text(&value, x, 45, 18, width, true, VALUE);
+    for (x, width, label, value) in [(150, 104, "10% LOW", low), (258, 96, "JITTER", jitter)] {
+        dashboard.text(label, x, 26, 12, width, true, LABEL);
+        dashboard.text(&value, x, 42, 18, width, true, VALUE);
     }
-    dashboard.rect(LINE, 16, 78, WIDTH - 32, 1);
+    dashboard.rect(LINE, 16, 70, WIDTH - 32, 1);
     let mode_label = match (target_fps, auto_algorithm_label) {
         (_, Some(label)) => format!("AUTO · {label}"),
         (Some(fps), None) if fps.is_finite() && fps > 0.0 => "MANUAL".to_owned(),
         _ => "OFF".to_owned(),
     };
-    dashboard.styled_box(16, 86, 104, 23, BoxStyle::Mode);
-    dashboard.text(&mode_label, 22, 89, 13, 92, true, MODE);
+    dashboard.styled_box(16, 75, 104, 23, BoxStyle::Mode);
+    dashboard.text(&mode_label, 22, 78, 13, 92, true, MODE);
     let cap = target_fps
         .filter(|v| v.is_finite() && *v > 0.0)
         .map(format_fps)
@@ -542,7 +542,7 @@ pub(super) fn layout(
     dashboard.text(
         "CAP",
         128,
-        87,
+        76,
         11,
         45,
         true,
@@ -555,7 +555,7 @@ pub(super) fn layout(
     dashboard.text(
         &format!("{cap} FPS"),
         128,
-        99,
+        88,
         14,
         72,
         true,
@@ -568,7 +568,7 @@ pub(super) fn layout(
     dashboard.text(
         "HYS",
         202,
-        87,
+        76,
         11,
         45,
         true,
@@ -581,7 +581,7 @@ pub(super) fn layout(
     dashboard.text(
         &hys,
         202,
-        99,
+        88,
         14,
         56,
         true,
@@ -591,9 +591,9 @@ pub(super) fn layout(
             VALUE
         },
     );
-    dashboard.text("TARGET", 259, 87, 11, 70, true, LABEL);
-    dashboard.text(&target, 259, 99, 14, 140, true, VALUE);
-    dashboard.rect(LINE, 16, 120, WIDTH - 32, 1);
+    dashboard.text("TARGET", 259, 76, 11, 70, true, LABEL);
+    dashboard.text(&target, 259, 88, 14, 95, true, VALUE);
+    dashboard.rect(LINE, 16, 105, WIDTH - 32, 1);
     let hardware = metrics.hardware_metrics();
     let display = |value: Option<f32>, precision: usize, unit: &str| {
         value
@@ -609,14 +609,14 @@ pub(super) fn layout(
     };
     for (y, name, temp, vrm, load) in [
         (
-            130,
+            111,
             "GPU",
             hardware.gpu_edge_temp_c,
             hardware.gpu_vrm_temp_c,
             gpu_load,
         ),
         (
-            157,
+            132,
             "CPU",
             hardware.cpu_temp_c,
             hardware.cpu_vrm_temp_c,
@@ -626,34 +626,34 @@ pub(super) fn layout(
         for (x, value_width, label, value) in [
             (16, 68, name, display(temp, 0, "°C")),
             (138, 68, "VRM", display(vrm, 0, "°C")),
-            (260, 85, "LOAD", load),
+            (260, 40, "LOAD", load),
         ] {
             dashboard.text(label, x, y, 12, 50, true, LABEL);
             dashboard.text(&value, x + 54, y, 14, value_width, true, VALUE);
         }
     }
-    dashboard.rect(LINE, 16, 183, WIDTH - 32, 1);
-    dashboard.text("PPT", 16, 192, 12, 45, true, LABEL);
+    dashboard.rect(LINE, 16, 153, WIDTH - 32, 1);
+    dashboard.text("PPT", 16, 159, 12, 45, true, LABEL);
     dashboard.text(
         &display(hardware.ppt_w, 1, "W"),
         70,
-        192,
+        159,
         14,
         125,
         true,
         VALUE,
     );
-    dashboard.text("FAN", 200, 192, 12, 45, true, LABEL);
+    dashboard.text("FAN", 200, 159, 12, 45, true, LABEL);
     dashboard.text(
         &display(hardware.fan_rpm, 0, "RPM"),
         254,
-        192,
+        159,
         14,
-        155,
+        100,
         true,
         VALUE,
     );
-    dashboard.rect(LINE, 16, 219, WIDTH - 32, 1);
+    dashboard.rect(LINE, 16, 180, WIDTH - 32, 1);
     let (down, up) = if auto_algorithm_index.is_some() {
         ("-1%".into(), "+1%".into())
     } else if target_fps.is_some_and(|fps| fps.is_finite() && fps > 0.0) {
@@ -665,10 +665,10 @@ pub(super) fn layout(
         ("--".into(), "--".into())
     };
     for (x, width, hotkey, action) in [
-        (16, 62, hotkeys[0], "MODE".to_owned()),
-        (116, 62, hotkeys[2], down),
-        (216, 62, hotkeys[1], up),
-        (316, 47, hotkeys[3], "OSD".to_owned()),
+        (16, 50, hotkeys[0], "MODE".to_owned()),
+        (104, 50, hotkeys[2], down),
+        (192, 50, hotkeys[1], up),
+        (280, 38, hotkeys[3], "OSD".to_owned()),
     ] {
         let color = if feedback.hotkey == Some(hotkey) {
             FEEDBACK
@@ -677,7 +677,7 @@ pub(super) fn layout(
         };
         dashboard.styled_box(
             x,
-            229,
+            186,
             30,
             20,
             if feedback.hotkey == Some(hotkey) {
@@ -686,8 +686,8 @@ pub(super) fn layout(
                 BoxStyle::Key
             },
         );
-        dashboard.text(hotkey.label(), x + 4, 231, 11, 23, true, color);
-        dashboard.text(&action, x + 36, 231, 11, width, true, LABEL);
+        dashboard.text(hotkey.label(), x + 4, 188, 11, 23, true, color);
+        dashboard.text(&action, x + 36, 188, 11, width, true, LABEL);
     }
     dashboard
 }
@@ -782,21 +782,21 @@ mod tests {
             },
             1,
         );
-        assert_eq!((dashboard.width, dashboard.height), (415, 260));
+        assert_eq!((dashboard.width, dashboard.height), (370, 215));
         for (text, x, y, size, width, group) in [
-            ("60", 16, 27, 36, FPS_VALUE_WIDTH, ACCENT),
-            ("55 FPS", 150, 45, 18, 110, VALUE),
-            ("0.5 ms", 269, 45, 18, 130, VALUE),
-            ("AUTO · JIT", 22, 89, 13, 92, MODE),
-            ("60 FPS", 128, 99, 14, 72, FEEDBACK),
-            ("5.0%", 202, 99, 14, 56, FEEDBACK),
-            ("55 FPS", 259, 99, 14, 140, VALUE),
-            ("43 °C", 70, 130, 14, 68, VALUE),
-            ("35 %", 314, 157, 14, 85, VALUE),
-            ("32.6 W", 70, 192, 14, 125, VALUE),
-            ("1240 RPM", 254, 192, 14, 155, VALUE),
-            ("F10", 120, 231, 11, 23, FEEDBACK),
-            ("-1%", 152, 231, 11, 62, LABEL),
+            ("60", 16, 24, 36, FPS_VALUE_WIDTH, ACCENT),
+            ("55 FPS", 150, 42, 18, 104, VALUE),
+            ("0.5 ms", 258, 42, 18, 96, VALUE),
+            ("AUTO · JIT", 22, 78, 13, 92, MODE),
+            ("60 FPS", 128, 88, 14, 72, FEEDBACK),
+            ("5.0%", 202, 88, 14, 56, FEEDBACK),
+            ("55 FPS", 259, 88, 14, 95, VALUE),
+            ("43 °C", 70, 111, 14, 68, VALUE),
+            ("35 %", 314, 132, 14, 40, VALUE),
+            ("32.6 W", 70, 159, 14, 125, VALUE),
+            ("1240 RPM", 254, 159, 14, 100, VALUE),
+            ("F10", 108, 188, 11, 23, FEEDBACK),
+            ("-1%", 140, 188, 11, 50, LABEL),
         ] {
             assert_text(&dashboard, text, x, y, size, width, group);
         }
@@ -841,11 +841,11 @@ mod tests {
             OverlayFeedback::default(),
             1,
         );
-        assert_text(&dashboard, "COLLECT", 16, 27, 20, FPS_VALUE_WIDTH, ACCENT);
-        assert_text(&dashboard, "COLLECT", 150, 45, 18, 110, VALUE);
-        assert_text(&dashboard, "OFF", 22, 89, 13, 92, MODE);
-        assert_text(&dashboard, "STALE", 314, 130, 14, 85, VALUE);
-        assert_text(&dashboard, "--", 254, 192, 14, 155, VALUE);
+        assert_text(&dashboard, "COLLECT", 16, 24, 20, FPS_VALUE_WIDTH, ACCENT);
+        assert_text(&dashboard, "COLLECT", 150, 42, 18, 104, VALUE);
+        assert_text(&dashboard, "OFF", 22, 78, 13, 92, MODE);
+        assert_text(&dashboard, "STALE", 314, 111, 14, 40, VALUE);
+        assert_text(&dashboard, "--", 254, 159, 14, 100, VALUE);
         let fps_only = layout(
             &metrics,
             OverlayMode::Fps,
@@ -894,7 +894,7 @@ mod tests {
                     .max()
                     .unwrap()
                     .div_ceil(scale);
-                assert_text(&dashboard, "FPS", right + FPS_LABEL_GAP, 48, 14, 30, VALUE);
+                assert_text(&dashboard, "FPS", right + FPS_LABEL_GAP, 45, 14, 30, VALUE);
                 assert!(
                     right + FPS_LABEL_GAP + 30 <= 150,
                     "fps={fps}, scale={scale}"
@@ -908,13 +908,21 @@ mod tests {
         for (text, size, width) in [
             ("9999", 36, FPS_VALUE_WIDTH),
             ("COLLECT", 20, FPS_VALUE_WIDTH),
-            ("COLLECT", 18, 110),
-            ("1000 FPS", 18, 110),
+            ("COLLECT", 18, 104),
+            ("1000 FPS", 18, 104),
             ("240 FPS", 14, 72),
             ("100.0%", 14, 56),
             ("100 °C", 14, 68),
-            ("-5 FPS", 11, 62),
-            ("+5 FPS", 11, 62),
+            ("100 %", 14, 40),
+            ("STALE", 14, 40),
+            ("COLLECT FPS", 14, 95),
+            ("1240 RPM", 14, 100),
+            ("-5 FPS", 11, 50),
+            ("+5 FPS", 11, 50),
+            ("-25 FPS", 11, 50),
+            ("+25 FPS", 11, 50),
+            ("-100 FPS", 11, 50),
+            ("+100 FPS", 11, 50),
         ] {
             for scale in [1, 2] {
                 let make_dashboard = || Dashboard {
@@ -937,6 +945,83 @@ mod tests {
                     constrained.edges[VALUE], unconstrained.edges[VALUE],
                     "{text} at {scale}×"
                 );
+            }
+        }
+    }
+
+    #[test]
+    fn compact_rows_and_key_hints_do_not_overlap() {
+        let hardware = HardwareMetrics {
+            gpu_edge_temp_c: Some(100.0),
+            gpu_vrm_temp_c: Some(100.0),
+            cpu_temp_c: Some(100.0),
+            cpu_vrm_temp_c: Some(100.0),
+            cpu_load_percent: Some(100.0),
+            ppt_w: Some(100.0),
+            fan_rpm: Some(9999.0),
+            ..HardwareMetrics::default()
+        };
+        let intersects = |a: &OverlayRect, b: &OverlayRect| {
+            a.x < b.x + b.width
+                && b.x < a.x + a.width
+                && a.y < b.y + b.height
+                && b.y < a.y + a.height
+        };
+        for scale in [1, 2] {
+            for fps in [-1.0, 60.0, 9999.0] {
+                let metrics = snapshot(fps, hardware.clone(), TelemetryStatus::Available);
+                let dashboard = layout(
+                    &metrics,
+                    OverlayMode::Full,
+                    Some(240.0),
+                    Some(0),
+                    Some("JIT"),
+                    Some(100.0),
+                    Some((AutoMetric::Fps, AutoTarget::Low10Fps)),
+                    KEYS,
+                    5.0,
+                    OverlayFeedback::default(),
+                    scale,
+                );
+                let text = dashboard
+                    .groups
+                    .iter()
+                    .enumerate()
+                    .filter(|(index, _)| *index != LINE)
+                    .flat_map(|(_, group)| group.iter())
+                    .chain(dashboard.edges.iter().flatten().flatten());
+                for rect in text {
+                    assert!(
+                        dashboard.groups[LINE]
+                            .iter()
+                            .all(|line| !intersects(rect, line)),
+                        "text intersects separator: fps={fps}, scale={scale}, {rect:?}"
+                    );
+                }
+                for key in &dashboard.boxes {
+                    assert!(dashboard.groups[LINE]
+                        .iter()
+                        .all(|line| !intersects(&key.rect, line)));
+                }
+            }
+            for (x, action, next_key) in [
+                (16, "MODE", 104),
+                (104, "-25 FPS", 192),
+                (192, "+25 FPS", 280),
+            ] {
+                let mut reference = Dashboard {
+                    width: WIDTH,
+                    height: HEIGHT,
+                    scale,
+                    groups: std::array::from_fn(|_| Vec::new()),
+                    edges: std::array::from_fn(|_| std::array::from_fn(|_| Vec::new())),
+                    boxes: Vec::new(),
+                };
+                reference.text(action, x + 36, 188, 11, 50, true, LABEL);
+                assert!(reference.groups[LABEL]
+                    .iter()
+                    .chain(reference.edges[LABEL].iter().flatten())
+                    .all(|rect| rect.x + rect.width <= next_key * scale));
             }
         }
     }

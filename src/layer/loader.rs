@@ -6,7 +6,7 @@ use crate::layer::lib::{GpuMeasurement, HardwareMetrics, TelemetryStatus};
 use crate::layer::limiter::{wait_until, FrameCapController, FrameScheduler};
 use crate::layer::renderer::{
     OverlayFeedbackEvent, OverlayFeedbackState, OverlayMode, OverlayModeState,
-    VulkanSwapchainRenderer,
+    OverlayRendererState, VulkanSwapchainRenderer,
 };
 use crate::layer::telemetry::{
     AmdGpuProvider, CpuUsageProvider, GpuTelemetryProvider, GpuUsageSmoother,
@@ -97,7 +97,7 @@ struct DeviceState {
     overlay_refresh_rate: u64,
     scale_2x_min_width_px: u32,
     overlay_background_opacity: f32,
-    overlay_renderer: crate::layer::settings::OverlayRenderer,
+    overlay_renderer: Arc<OverlayRendererState>,
     overlay_fps_color: [u8; 3],
     queue_families: HashMap<usize, u32>,
     frame_cap: Arc<FrameCapController>,
@@ -767,6 +767,7 @@ pub unsafe extern "system" fn vkCreateDevice(
             config.manual_max_fps,
         ));
         let overlay_mode = Arc::new(OverlayModeState::new(config.startup));
+        let overlay_renderer = Arc::new(OverlayRendererState::new(config.overlay_renderer));
         let active_auto_algorithm = Arc::new(AtomicI32::new(if config.target_fps.is_some() {
             0
         } else {
@@ -793,6 +794,7 @@ pub unsafe extern "system" fn vkCreateDevice(
             config.hotkey_toggle,
             Arc::clone(&frame_cap),
             Arc::clone(&overlay_mode),
+            Arc::clone(&overlay_renderer),
             Arc::clone(&active_auto_algorithm),
             Arc::clone(&auto_hysteresis_percent),
             config.manual_step_fps,
@@ -833,7 +835,7 @@ pub unsafe extern "system" fn vkCreateDevice(
                 overlay_refresh_rate: config.refresh_rate,
                 scale_2x_min_width_px: config.scale_2x_min_width_px,
                 overlay_background_opacity: config.overlay_background_opacity,
-                overlay_renderer: config.overlay_renderer,
+                overlay_renderer,
                 overlay_fps_color: config.overlay_fps_color,
                 auto_regulator: AutoRegulator::new(
                     config.auto_algorithms.clone(),
@@ -903,7 +905,7 @@ pub unsafe extern "system" fn vkCreateSwapchainKHR(
             state.overlay_refresh_rate,
             state.scale_2x_min_width_px,
             state.overlay_background_opacity,
-            state.overlay_renderer,
+            Arc::clone(&state.overlay_renderer),
             state.overlay_fps_color,
         )
     };
