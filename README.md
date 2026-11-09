@@ -24,12 +24,17 @@ Framecap's behavior is largely configurable in `framecap.toml`
 
 # Short installation guide
 
-## Download and build
+## Install RUST toolchain
+```sh
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+
+## Download and build Framecap
 
 ```sh
 git clone https://github.com/sgauge-ops/Framecap.git "$HOME/bc250-framecap" ;
 cd "$HOME/bc250-framecap" ;
-cargo build --locked --release
+cargo build --locked
 ```
 
 ## Configure
@@ -74,7 +79,7 @@ cd "$HOME/bc250-framecap" ;
 cp framecap.toml framecap.bak.toml ;
 git reset --hard HEAD ;
 git pull ;
-cargo build --locked --release
+cargo build --locked
 ```
 
 # Going further
