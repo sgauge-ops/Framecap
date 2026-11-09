@@ -25,13 +25,12 @@ The ascii overlay presents:
 ```text
          FPS:   60        | 10% LOW: 55 FPS  | JIT:   0.5 MS    |
 -----------------------------------------------------------------
-         MODE: AUTO (JIT) | CAP:     60 FPS  | HYS:   5.0 %     | TARGET: 60 FPS
+         MODE: AUTO (JIT) | CAP:     60 FPS  | HYS:   5.0 FPS   | TARGET: 55 FPS
 -----------------------------------------------------------------
          GPU:   43 °C     | VRM:   57 °C     | Load:   55 %     | PPT:  32.6 W
          CPU:   70 °C     | VRM:   61 °C     | Load:   35 %     | RPM:  1240 RPM
 -----------------------------------------------------------------
-MANUAL:  [F9] CYCLE MODE  | [F10]  -5 FPS    | [F11]  +5 FPS    | [F12] CYCLE OSD
-AUTO:    [F9] CYCLE MODE  | [F10]  -1 %      | [F11]  +1 %      | [F12] CYCLE OSD
+         [F9] CYCLE MODE  | [F10]  -1 FPS    | [F11]  +1 FPS    | [F12] CYCLE OSD
 ```
 
 On release, a short press of F12 cycles full overlay → FPS only → off → full
@@ -59,7 +58,9 @@ FAN. JIT shows
 `TARGET: COLLECT FPS` while its reference is unavailable; MANUAL and OFF show
 `TARGET: --`. A cap change highlights `CAP`, a change in active
 hysteresis highlights `HYS`, and a key press highlights that key for one
-second. These highlights are independent.
+second. These highlights are independent. HYS is displayed in FPS for JIT,
+°C for VRM, and RPM for FAN; the shortcut hints show the corresponding
+adjustment step.
 
 `JIT` remains a numeric frametime-variation metric, independent of any graph.
 `[overlay].background_opacity` controls the background from 0.0 (transparent)
@@ -69,6 +70,10 @@ on every presentation. Displayed metrics refresh every `[overlay].refresh_rate`
 presentations, built-in default 10. Sensor readings are averaged independently
 over `[overlay].gpu_smoothing_window_ms`; an unavailable reading clears that
 sensor's history only.
+These are overlay values, not the separate rolling values used for AUTO
+decisions. Overlay FPS, 10% low and jitter restart collection after a cap
+change; AUTO histories do not. In particular, JIT's displayed TARGET is the
+overlay's 10% low and can differ from AUTO's reference.
 
 Dashboard shaders are checked in as both GLSL and SPIR-V. After changing a
 shader, regenerate its binary with `glslangValidator -V`:

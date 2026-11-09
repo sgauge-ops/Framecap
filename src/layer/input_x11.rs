@@ -1,5 +1,5 @@
-use crate::layer::auto::adjust_hysteresis_percent;
-use crate::layer::config::Hotkey;
+use crate::layer::auto::adjust_hysteresis;
+use crate::layer::config::{AutoMetric, Hotkey};
 use crate::layer::diagnostics;
 use crate::layer::limiter::FrameCapController;
 use crate::layer::renderer::{
@@ -219,7 +219,8 @@ struct HotkeyTarget {
     overlay_mode: Arc<OverlayModeState>,
     overlay_renderer: Arc<OverlayRendererState>,
     active_auto_algorithm: Arc<AtomicI32>,
-    auto_hysteresis_percent: Arc<Vec<AtomicU32>>,
+    auto_hysteresis: Arc<Vec<AtomicU32>>,
+    auto_metrics: Vec<AutoMetric>,
     manual_step_fps: f32,
     overlay_feedback: Arc<OverlayFeedbackState>,
     hotkeys: [Hotkey; 4],
@@ -257,7 +258,8 @@ impl HotkeyWorker {
         overlay_mode: Arc<OverlayModeState>,
         overlay_renderer: Arc<OverlayRendererState>,
         active_auto_algorithm: Arc<AtomicI32>,
-        auto_hysteresis_percent: Arc<Vec<AtomicU32>>,
+        auto_hysteresis: Arc<Vec<AtomicU32>>,
+        auto_metrics: Vec<AutoMetric>,
         manual_step_fps: f32,
         overlay_feedback: Arc<OverlayFeedbackState>,
     ) -> Option<Self> {
@@ -270,7 +272,8 @@ impl HotkeyWorker {
             overlay_mode,
             overlay_renderer,
             active_auto_algorithm,
-            auto_hysteresis_percent,
+            auto_hysteresis,
+            auto_metrics,
             manual_step_fps,
             overlay_feedback,
             hotkeys: [auto_key, up_key, down_key, toggle_key],
@@ -557,7 +560,7 @@ fn dispatch_action(target: &HotkeyTarget, action: usize, hotkey: Hotkey) {
         0 => match cycle_regulation_mode(
             &target.active_auto_algorithm,
             &target.controller,
-            target.auto_hysteresis_percent.len(),
+            target.auto_hysteresis.len(),
         ) {
             Ok(RegulationMode::Manual) => {
                 target
@@ -594,17 +597,25 @@ fn dispatch_action(target: &HotkeyTarget, action: usize, hotkey: Hotkey) {
 fn adjust_target(target: &HotkeyTarget, direction: f32) {
     let active = target.active_auto_algorithm.load(Ordering::Relaxed);
     if active > 0 {
-        if let Some((old, new)) = adjust_hysteresis_percent(
-            &target.auto_hysteresis_percent,
-            (active - 1) as usize,
-            direction,
-        ) {
+        let index = (active - 1) as usize;
+        if let Some((metric, (old, new))) =
+            target.auto_metrics.get(index).copied().and_then(|metric| {
+                adjust_hysteresis(
+                    &target.auto_hysteresis,
+                    index,
+                    direction * metric.hysteresis_step(),
+                )
+                .map(|change| (metric, change))
+            })
+        {
             target
                 .overlay_feedback
                 .record(OverlayFeedbackEvent::HysteresisChanged);
             let verb = if direction > 0.0 { "raised" } else { "lowered" };
             diagnostics::info(format!(
-                "[CONTROL] AUTO hysteresis {verb}: {old:.1}% -> {new:.1}%"
+                "[CONTROL] AUTO hysteresis {verb}: {old:.1} {} -> {new:.1} {}",
+                metric.hysteresis_unit(),
+                metric.hysteresis_unit()
             ));
         }
     } else if let Some((old, new)) = target.controller.adjust(direction * target.manual_step_fps) {
@@ -692,6 +703,66 @@ mod tests {
     }
 
     #[test]
+    fn auto_hotkeys_use_metric_steps_and_order_without_touching_other_values() {
+        use crate::layer::settings::OverlayRenderer;
+
+        let target = HotkeyTarget {
+            controller: Arc::new(FrameCapController::new(Some(60.0))),
+            overlay_mode: Arc::new(OverlayModeState::new(2)),
+            overlay_renderer: Arc::new(OverlayRendererState::new(OverlayRenderer::Modern)),
+            active_auto_algorithm: Arc::new(AtomicI32::new(1)),
+            auto_hysteresis: Arc::new(vec![
+                AtomicU32::new(50.0_f32.to_bits()),
+                AtomicU32::new(5.0_f32.to_bits()),
+                AtomicU32::new(5.0_f32.to_bits()),
+            ]),
+            auto_metrics: vec![AutoMetric::FanRpm, AutoMetric::Fps, AutoMetric::GpuVrmTempC],
+            manual_step_fps: 5.0,
+            overlay_feedback: Arc::new(OverlayFeedbackState::new()),
+            hotkeys: [Hotkey::F9, Hotkey::F11, Hotkey::F10, Hotkey::F12],
+        };
+        for (index, expected) in [(0, 60.0), (1, 6.0), (2, 6.0)] {
+            target
+                .active_auto_algorithm
+                .store(index as i32 + 1, Ordering::Relaxed);
+            adjust_target(&target, 1.0);
+            assert_eq!(
+                f32::from_bits(target.auto_hysteresis[index].load(Ordering::Relaxed)),
+                expected
+            );
+            adjust_target(&target, -1.0);
+        }
+        assert_eq!(
+            f32::from_bits(target.auto_hysteresis[0].load(Ordering::Relaxed)),
+            50.0
+        );
+        assert_eq!(
+            f32::from_bits(target.auto_hysteresis[1].load(Ordering::Relaxed)),
+            5.0
+        );
+        assert_eq!(
+            f32::from_bits(target.auto_hysteresis[2].load(Ordering::Relaxed)),
+            5.0
+        );
+        target.auto_hysteresis[0].store(3.0_f32.to_bits(), Ordering::Relaxed);
+        target.active_auto_algorithm.store(1, Ordering::Relaxed);
+        adjust_target(&target, -1.0);
+        assert_eq!(
+            f32::from_bits(target.auto_hysteresis[0].load(Ordering::Relaxed)),
+            0.0
+        );
+        assert!(
+            target
+                .overlay_feedback
+                .current(Instant::now())
+                .hysteresis_changed
+        );
+        target.active_auto_algorithm.store(4, Ordering::Relaxed);
+        adjust_target(&target, 1.0);
+        assert_eq!(target.controller.target_fps(), Some(60.0));
+    }
+
+    #[test]
     fn overlay_hotkey_short_and_long_presses_are_independent() {
         use crate::layer::renderer::OverlayMode;
         use crate::layer::settings::OverlayRenderer;
@@ -701,7 +772,8 @@ mod tests {
             overlay_mode: Arc::new(OverlayModeState::new(2)),
             overlay_renderer: Arc::new(OverlayRendererState::new(OverlayRenderer::Modern)),
             active_auto_algorithm: Arc::new(AtomicI32::new(0)),
-            auto_hysteresis_percent: Arc::new(Vec::new()),
+            auto_hysteresis: Arc::new(Vec::new()),
+            auto_metrics: Vec::new(),
             manual_step_fps: 5.0,
             overlay_feedback: Arc::new(OverlayFeedbackState::new()),
             hotkeys: [Hotkey::F10, Hotkey::F12, Hotkey::F9, Hotkey::F11],

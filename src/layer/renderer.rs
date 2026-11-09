@@ -249,11 +249,19 @@ impl Renderer {
     pub fn target_text(
         target_fps: Option<f32>,
         auto_algorithm_index: Option<usize>,
+        auto_metric: Option<AutoMetric>,
         hotkeys: [Hotkey; 4],
         manual_step_fps: f32,
     ) -> String {
         let (down_hint, up_hint) = if auto_algorithm_index.is_some() {
-            ("-1 %".into(), "+1 %".into())
+            auto_metric.map_or_else(
+                || ("--".into(), "--".into()),
+                |metric| {
+                    let step = format_fps(metric.hysteresis_step());
+                    let unit = metric.hysteresis_unit();
+                    (format!("-{step} {unit}"), format!("+{step} {unit}"))
+                },
+            )
         } else if target_fps.is_some_and(|fps| fps.is_finite() && fps > 0.0) {
             (
                 format!("-{} FPS", format_fps(manual_step_fps)),
@@ -285,7 +293,8 @@ impl Renderer {
     pub fn status_text(
         target_fps: Option<f32>,
         auto_algorithm_label: Option<&str>,
-        hysteresis_percent: Option<f32>,
+        hysteresis: Option<f32>,
+        auto_metric: Option<AutoMetric>,
         auto_target: Option<&str>,
     ) -> String {
         let target = target_fps
@@ -312,10 +321,8 @@ impl Renderer {
             &mut text,
             SECOND_COLUMN,
             &format!(
-                "| HYS: {} %",
-                hysteresis_percent
-                    .map(|value| format!("{value:>5.1}"))
-                    .unwrap_or_else(|| "   --".to_owned())
+                "| {}",
+                Self::format_hysteresis_field(hysteresis, auto_metric)
             ),
         );
         append_at_column(
@@ -324,6 +331,15 @@ impl Renderer {
             &format!("| TARGET: {}", auto_target.unwrap_or("--")),
         );
         text
+    }
+
+    fn format_hysteresis_field(hysteresis: Option<f32>, metric: Option<AutoMetric>) -> String {
+        match (hysteresis, metric) {
+            (Some(value), Some(metric)) => {
+                format!("HYS: {value:>5.1} {}", metric.hysteresis_unit())
+            }
+            _ => "HYS:    --".to_owned(),
+        }
     }
 
     /// Returns rectangles highlighting the selected status text.
@@ -1068,7 +1084,7 @@ impl VulkanSwapchainRenderer {
         target_fps: Option<f32>,
         auto_algorithm_index: Option<usize>,
         auto_algorithm_label: Option<&str>,
-        hysteresis_percent: Option<f32>,
+        hysteresis: Option<f32>,
         auto_target: Option<(AutoMetric, AutoTarget)>,
         hotkeys: [Hotkey; 4],
         manual_step_fps: f32,
@@ -1159,7 +1175,7 @@ impl VulkanSwapchainRenderer {
                 target_fps,
                 auto_algorithm_index,
                 auto_algorithm_label: auto_algorithm_label.map(str::to_owned),
-                hysteresis_percent,
+                hysteresis,
                 auto_target,
                 hotkeys,
                 manual_step_fps,
@@ -1172,7 +1188,7 @@ impl VulkanSwapchainRenderer {
                     target_fps,
                     auto_algorithm_index,
                     auto_algorithm_label,
-                    hysteresis_percent,
+                    hysteresis,
                     auto_target,
                     hotkeys,
                     manual_step_fps,
@@ -1212,13 +1228,15 @@ impl VulkanSwapchainRenderer {
                     Renderer::target_text(
                         target_fps,
                         auto_algorithm_index,
+                        auto_target.map(|(metric, _)| metric),
                         hotkeys,
                         manual_step_fps,
                     ),
                     Renderer::status_text(
                         target_fps,
                         auto_algorithm_label,
-                        hysteresis_percent,
+                        hysteresis,
+                        auto_target.map(|(metric, _)| metric),
                         formatted_auto_target.as_deref(),
                     ),
                 )
@@ -1498,7 +1516,10 @@ impl VulkanSwapchainRenderer {
                     [self.extent.width, self.extent.height],
                     scale,
                     status_top,
-                    &format!("HYS: {:>5.1} %", hysteresis_percent.unwrap_or_default()),
+                    &Renderer::format_hysteresis_field(
+                        hysteresis,
+                        auto_target.map(|(metric, _)| metric),
+                    ),
                 ));
             }
             let status_feedback_rectangles = status_feedback_rectangles
@@ -1676,7 +1697,13 @@ mod tests {
 
     /// Builds the target row using the test hotkey layout and standard step.
     fn target_text(target_fps: Option<f32>, auto_algorithm_index: Option<usize>) -> String {
-        Renderer::target_text(target_fps, auto_algorithm_index, HOTKEYS, 5.0)
+        Renderer::target_text(
+            target_fps,
+            auto_algorithm_index,
+            auto_algorithm_index.map(|_| AutoMetric::Fps),
+            HOTKEYS,
+            5.0,
+        )
     }
 
     fn char_column(line: &str, marker: &str) -> usize {
@@ -1767,34 +1794,48 @@ mod tests {
         );
         assert_eq!(
             auto,
-            "[F9] CYCLE MODE  | [F10]  -1 %      | [F11]  +1 %      | [F12] CYCLE OSD"
+            "[F9] CYCLE MODE  | [F10]  -1 FPS    | [F11]  +1 FPS    | [F12] CYCLE OSD"
         );
         assert!(manual.contains("| [F10]  -5 FPS"));
         assert!(manual.contains("| [F11]  +5 FPS"));
         assert!(manual.contains("| [F12] CYCLE OSD"));
-        assert!(auto.contains("| [F10]  -1 %"));
-        assert!(auto.contains("| [F11]  +1 %"));
+        assert!(auto.contains("| [F10]  -1 FPS"));
+        assert!(auto.contains("| [F11]  +1 FPS"));
         assert!(auto.contains("| [F12] CYCLE OSD"));
         assert!(off.contains("[F10]  --") && off.contains("[F11]  --"));
-        let status = Renderer::status_text(Some(60.0), None, None, None);
+        let status = Renderer::status_text(Some(60.0), None, None, None, None);
         assert!(status.contains("MODE: MANUAL"));
         assert!(status.contains("| CAP:     60 FPS"));
-        assert!(status.contains("| HYS:    -- %"));
-        let auto_status = Renderer::status_text(Some(75.0), Some("VRM"), Some(5.0), Some("100 °C"));
+        assert!(status.contains("| HYS:    --"));
+        let auto_status = Renderer::status_text(
+            Some(75.0),
+            Some("VRM"),
+            Some(5.0),
+            Some(AutoMetric::GpuVrmTempC),
+            Some("100 °C"),
+        );
         assert!(auto_status.contains("MODE: AUTO (VRM)"));
-        assert!(
-            Renderer::status_text(Some(75.0), Some("JIT"), Some(3.0), Some("60 FPS"))
-                .contains("MODE: AUTO (JIT)")
-        );
-        assert!(
-            Renderer::status_text(Some(75.0), Some("FAN"), Some(5.0), Some("2000 RPM"))
-                .contains("MODE: AUTO (FAN)")
-        );
+        assert!(Renderer::status_text(
+            Some(75.0),
+            Some("JIT"),
+            Some(3.0),
+            Some(AutoMetric::Fps),
+            Some("60 FPS")
+        )
+        .contains("MODE: AUTO (JIT)"));
+        assert!(Renderer::status_text(
+            Some(75.0),
+            Some("FAN"),
+            Some(5.0),
+            Some(AutoMetric::FanRpm),
+            Some("2000 RPM")
+        )
+        .contains("MODE: AUTO (FAN)"));
         assert!(auto_status
             .chars()
             .filter(|character| !character.is_whitespace())
             .all(|character| glyph(character) != [0; 7]));
-        assert!(Renderer::status_text(None, None, None, None).contains("CAP:    OFF FPS"));
+        assert!(Renderer::status_text(None, None, None, None, None).contains("CAP:    OFF FPS"));
         let text = target_text(Some(60.0), None);
         assert!(text
             .chars()
@@ -1836,8 +1877,14 @@ mod tests {
             "FPS:   60        | 10% LOW: 55 FPS  | JIT:   0.5 MS    |"
         );
         assert_eq!(
-            Renderer::status_text(Some(60.0), Some("JIT"), Some(5.0), Some("60 FPS")),
-            "MODE: AUTO (JIT) | CAP:     60 FPS  | HYS:   5.0 %     | TARGET: 60 FPS"
+            Renderer::status_text(
+                Some(60.0),
+                Some("JIT"),
+                Some(5.0),
+                Some(AutoMetric::Fps),
+                Some("60 FPS")
+            ),
+            "MODE: AUTO (JIT) | CAP:     60 FPS  | HYS:   5.0 FPS   | TARGET: 60 FPS"
         );
         let metrics_rects = Renderer::text_rects_at(&metrics, [640, 480], 1, 17);
         assert!(metrics_rects.iter().all(|rect| rect.y >= 17 && rect.y < 31));
@@ -1940,7 +1987,13 @@ mod tests {
         ] {
             let value = format_auto_target(target, &metrics);
             assert_eq!(value, expected);
-            let status = Renderer::status_text(Some(90.0), Some(label), Some(5.0), Some(&value));
+            let status = Renderer::status_text(
+                Some(90.0),
+                Some(label),
+                Some(5.0),
+                Some(target.0),
+                Some(&value),
+            );
             assert!(status.contains(&format!("| TARGET: {expected}")));
             assert_eq!(char_column(&status, "| TARGET:"), THIRD_COLUMN);
             assert!(status
@@ -1953,15 +2006,15 @@ mod tests {
             "COLLECT FPS"
         );
         for cap in [Some(90.0), None] {
-            assert!(Renderer::status_text(cap, None, None, None).contains("| TARGET: --"));
+            assert!(Renderer::status_text(cap, None, None, None, None).contains("| TARGET: --"));
         }
     }
 
     #[test]
     /// Checks that text columns remain anchored with the largest manual step.
     fn overlay_column_anchors_are_stable_with_maximum_manual_step() {
-        let keys = Renderer::target_text(Some(240.0), None, HOTKEYS, 240.0);
-        let status = Renderer::status_text(Some(240.0), None, None, None);
+        let keys = Renderer::target_text(Some(240.0), None, None, HOTKEYS, 240.0);
+        let status = Renderer::status_text(Some(240.0), None, None, None, None);
         assert_eq!(keys.find("| [F10]").unwrap(), FIRST_COLUMN);
         assert_eq!(keys.find("| [F11]").unwrap(), SECOND_COLUMN);
         assert_eq!(keys.find("| [F12]").unwrap(), THIRD_COLUMN);
@@ -1973,20 +2026,24 @@ mod tests {
     #[test]
     /// Checks that fractional target FPS values retain their decimal precision.
     fn target_text_preserves_fractional_fps_settings() {
-        let text = Renderer::target_text(Some(77.5), None, HOTKEYS, 5.5);
+        let text = Renderer::target_text(Some(77.5), None, None, HOTKEYS, 5.5);
         assert!(text.contains("| [F10]  -5.5 FPS"));
         assert!(text.contains("| [F11]  +5.5 FPS"));
-        assert!(
-            Renderer::status_text(Some(77.5), Some("JIT"), Some(5.5), Some("60 FPS"))
-                .contains("HYS:   5.5 %")
-        );
+        assert!(Renderer::status_text(
+            Some(77.5),
+            Some("JIT"),
+            Some(5.5),
+            Some(AutoMetric::Fps),
+            Some("60 FPS")
+        )
+        .contains("HYS:   5.5 FPS"));
     }
 
     #[test]
     /// Checks custom key hints and highlighting of the pressed key.
     fn overlay_key_hints_follow_custom_bindings_and_highlight_the_pressed_key() {
         let hotkeys = [Hotkey::F12, Hotkey::F9, Hotkey::F10, Hotkey::F11];
-        let text = Renderer::target_text(Some(60.0), None, hotkeys, 2.5);
+        let text = Renderer::target_text(Some(60.0), None, None, hotkeys, 2.5);
         assert!(text.contains("[F12] CYCLE MODE"));
         assert!(text.contains("[F10]  -2.5 FPS"));
         let highlights = Renderer::feedback_rects(&text, [1200, 100], 1, 8, "[F9]");
@@ -2000,11 +2057,48 @@ mod tests {
     #[test]
     /// Checks that cap and hysteresis feedback highlight their status fields.
     fn cap_and_hysteresis_feedback_highlight_their_status_fields() {
-        let status = Renderer::status_text(Some(62.5), Some("JIT"), Some(10.0), Some("60 FPS"));
-        for field in ["CAP:   62.5 FPS", "HYS:  10.0 %"] {
+        let status = Renderer::status_text(
+            Some(62.5),
+            Some("JIT"),
+            Some(10.0),
+            Some(AutoMetric::Fps),
+            Some("60 FPS"),
+        );
+        for field in ["CAP:   62.5 FPS", "HYS:  10.0 FPS"] {
             let highlights = Renderer::feedback_rects(&status, [1200, 100], 1, 17, field);
             assert!(!highlights.is_empty());
         }
+    }
+
+    #[test]
+    fn auto_hysteresis_and_hotkey_hints_use_metric_units() {
+        for (metric, value, unit, step) in [
+            (AutoMetric::Fps, 5.0, "FPS", "1"),
+            (AutoMetric::GpuVrmTempC, 5.0, "°C", "1"),
+            (AutoMetric::FanRpm, 50.0, "RPM", "10"),
+        ] {
+            let status = Renderer::status_text(
+                Some(60.0),
+                Some("AUTO"),
+                Some(value),
+                Some(metric),
+                Some("TARGET"),
+            );
+            let field = format!("HYS: {value:>5.1} {unit}");
+            assert!(status.contains(&field));
+            assert!(!Renderer::feedback_rects(&status, [1200, 100], 1, 17, &field).is_empty());
+            assert_eq!(char_column(&status, "| TARGET:"), THIRD_COLUMN);
+            let hints = Renderer::target_text(Some(60.0), Some(0), Some(metric), HOTKEYS, 5.0);
+            assert!(hints.contains(&format!("-{step} {unit}")));
+            assert!(hints.contains(&format!("+{step} {unit}")));
+            assert_eq!(char_column(&hints, "| [F12]"), THIRD_COLUMN);
+        }
+        let hints = Renderer::target_text(Some(60.0), Some(0), None, HOTKEYS, 5.0);
+        assert!(hints.contains("| [F10]  --"));
+        assert!(
+            Renderer::status_text(Some(60.0), Some("AUTO"), Some(5.0), None, None)
+                .contains("HYS:    --")
+        );
     }
 
     #[test]
@@ -2184,8 +2278,8 @@ mod tests {
         let manual_low = target_text(Some(60.0), None);
         let manual_high = target_text(Some(240.0), None);
         assert_eq!(manual_low.len(), manual_high.len());
-        let status_low = Renderer::status_text(Some(1.0), None, None, None);
-        let status_high = Renderer::status_text(Some(240.0), None, None, None);
+        let status_low = Renderer::status_text(Some(1.0), None, None, None, None);
+        let status_high = Renderer::status_text(Some(240.0), None, None, None, None);
         assert_eq!(status_low.len(), status_high.len());
     }
 

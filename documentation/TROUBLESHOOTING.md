@@ -57,6 +57,21 @@ an unintended file in the game directory can override the intended settings.
 See [installation](INSTALL.md#configure) for the configuration link and
 [configuration](CONFIGURATION.md) for lookup and validation details.
 
+## Automatic regulation does not adjust the cap
+
+Check the selected AUTO mode, its sensor availability and effective
+configuration in the Framecap log. Older AUTO keys reject the entire file;
+follow the [migration instructions](CONFIGURATION.md#automatic-mode-migration)
+and restart the application if needed. Framecap logs effective adjustments as
+`[AUTO] FPS limit adjusted`.
+
+An initially empty history needs a full collection window followed by a full
+period of consistent decisions: with the default 4000 ms window, the first
+adjustment can take at least 8 seconds. Neutral or changing decisions,
+missing measurements, cap bounds or interruptions can delay it further.
+The overlay and AUTO use different windows, so the displayed values alone do
+not reproduce an AUTO decision. See the [automatic regulation reference](AUTO-MODE.md).
+
 ## Game crashes or fails to start
 
 1. Reproduce once without Framecap by temporarily removing its `VK_LAYER_PATH`

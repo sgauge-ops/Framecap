@@ -8,6 +8,9 @@ changes, not necessarily when development originally took place.
 
 | Date | Changes |
 | --- | --- |
+| 2026-11-09 | Changed all AUTO algorithms to per-algorithm rolling measurement windows and persistent direction confirmation, retaining history across cap changes. `auto_window_ms` defaults to 4000 ms and also sets the minimum interval between adjustments. |
+| 2026-11-09 | Replaced AUTO percentage hysteresis with absolute `hysteresis`: defaults are 5 FPS (JIT), 5 °C (VRM), and 50 RPM (FAN); F10/F11 adjust by 1 FPS, 1 °C, and 10 RPM respectively. |
+| 2026-11-09 | Removed `hysteresis_percent`, `auto_increase_interval_ms`, `auto_decrease_interval_ms`, and `measurement_expiry_ms` from AUTO configuration. Existing configuration files must be migrated; unknown keys reject the entire file. |
 | 2026-11-09 | Made the overlay renderer switch occur after one second of holding the shortcut, without waiting for key release. |
 | 2026-11-09 | Added a long press of the overlay shortcut (F12 by default) to switch temporarily between `modern` and `ascii`, including while hidden; a short press still cycles display modes. |
 | 2026-11-09 | Renamed the `[overlay].renderer` values from `dashboard` to `modern` and from `classic` to `ascii`; existing configurations must be updated. |

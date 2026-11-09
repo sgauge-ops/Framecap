@@ -32,17 +32,30 @@ pub struct AutoAlgorithmConfig {
     pub name: String,
     pub metric: AutoMetric,
     pub target: AutoTarget,
-    pub hysteresis_percent: f32,
-    pub increase_interval: Duration,
-    pub decrease_interval: Duration,
+    pub hysteresis: f32,
+    pub window: Duration,
     pub increase_step_fps: f32,
     pub decrease_step_fps: f32,
     pub min_fps: f32,
     pub max_fps: f32,
-    pub measurement_expiry: Duration,
 }
 
 impl AutoMetric {
+    pub fn hysteresis_unit(self) -> &'static str {
+        match self {
+            Self::Fps => "FPS",
+            Self::GpuVrmTempC => "°C",
+            Self::FanRpm => "RPM",
+        }
+    }
+
+    pub fn hysteresis_step(self) -> f32 {
+        match self {
+            Self::Fps | Self::GpuVrmTempC => 1.0,
+            Self::FanRpm => 10.0,
+        }
+    }
+
     fn parse(value: &str) -> Option<Self> {
         match value {
             "fps" => Some(Self::Fps),
@@ -193,11 +206,7 @@ impl Config {
             .find_map(|algorithm| algorithm.gpu_threshold.clone())
             .unwrap_or_default();
         let auto_algorithms = validated_auto_algorithms(auto.algorithms);
-        let gpu_expiry_ms = auto_algorithms
-            .iter()
-            .map(|algorithm| algorithm.measurement_expiry.as_millis() as u64)
-            .max()
-            .unwrap_or(1000);
+        let gpu_expiry_ms = 1000;
         let (gpu_increase_limit, gpu_decrease_limit) = validated_gpu_thresholds(
             gpu_threshold_settings.gpu_increase_limit,
             gpu_threshold_settings.gpu_decrease_limit,
@@ -460,28 +469,17 @@ fn validated_auto_algorithms(algorithms: Vec<AutoAlgorithmSettings>) -> Vec<Auto
             )
         };
         let section = format!("auto-mode.algorithms.{}", algorithm.name);
-        let hysteresis_percent = if algorithm.hysteresis_percent.is_finite()
-            && (0.0..=100.0).contains(&algorithm.hysteresis_percent)
-        {
-            algorithm.hysteresis_percent
-        } else {
-            diagnostics::error(format!(
-                "Invalid [{section}].hysteresis_percent: expected 0-100%; using {}%",
-                default.hysteresis_percent
-            ));
-            default.hysteresis_percent
-        };
-        let increase_interval = validated_algorithm_interval(
-            algorithm.auto_increase_interval_ms,
-            "auto_increase_interval_ms",
+        let hysteresis = non_negative_finite(
+            algorithm.hysteresis,
+            "hysteresis",
             &section,
-            default.auto_increase_interval_ms,
+            default.hysteresis,
         );
-        let decrease_interval = validated_algorithm_interval(
-            algorithm.auto_decrease_interval_ms,
-            "auto_decrease_interval_ms",
+        let window = validated_algorithm_interval(
+            algorithm.auto_window_ms,
+            "auto_window_ms",
             &section,
-            default.auto_decrease_interval_ms,
+            default.auto_window_ms,
         );
         let increase_step_fps = positive_finite_or_default(
             algorithm.auto_increase_step_fps,
@@ -497,24 +495,16 @@ fn validated_auto_algorithms(algorithms: Vec<AutoAlgorithmSettings>) -> Vec<Auto
         );
         let (min_fps, max_fps) =
             validated_fps_bounds(algorithm.min_fps, algorithm.max_fps, &section);
-        let measurement_expiry = validated_algorithm_interval(
-            algorithm.measurement_expiry_ms,
-            "measurement_expiry_ms",
-            &section,
-            default.measurement_expiry_ms,
-        );
         validated.push(AutoAlgorithmConfig {
             name: algorithm.name,
             metric,
             target,
-            hysteresis_percent,
-            increase_interval,
-            decrease_interval,
+            hysteresis,
+            window,
             increase_step_fps,
             decrease_step_fps,
             min_fps,
             max_fps,
-            measurement_expiry,
         });
     }
 
@@ -641,7 +631,7 @@ mod tests {
         assert_eq!(config.auto_algorithms[0].metric, AutoMetric::Fps);
         assert_eq!(config.auto_algorithms[0].target, AutoTarget::Low10Fps);
         assert_eq!(
-            config.auto_algorithms[0].increase_interval,
+            config.auto_algorithms[0].window,
             Duration::from_millis(4000)
         );
         assert_eq!(config.gpu_increase_limit, 98.0);
@@ -651,22 +641,75 @@ mod tests {
         assert_eq!(config.auto_algorithms[1].metric, AutoMetric::GpuVrmTempC);
         assert_eq!(config.auto_algorithms[1].target, AutoTarget::Value(100.0));
         assert_eq!(
-            config.auto_algorithms[1].increase_interval,
-            Duration::from_millis(10000)
+            config.auto_algorithms[1].window,
+            Duration::from_millis(4000)
         );
         assert_eq!(config.auto_algorithms[2].name, "fan_rpm");
         assert_eq!(config.auto_algorithms[2].metric, AutoMetric::FanRpm);
         assert_eq!(config.auto_algorithms[2].target, AutoTarget::Value(2000.0));
         assert_eq!(
-            config.auto_algorithms[2].increase_interval,
-            Duration::from_millis(5000)
+            config.auto_algorithms[2].window,
+            Duration::from_millis(4000)
         );
         assert_eq!(
             crate::layer::settings::Settings::default()
                 .auto_mode
                 .algorithms[2]
-                .auto_increase_interval_ms,
-            10000
+                .auto_window_ms,
+            4000
+        );
+        assert_eq!(config.gpu_expiry_ms, 1000);
+        assert_eq!(
+            config
+                .auto_algorithms
+                .iter()
+                .map(|a| a.hysteresis)
+                .collect::<Vec<_>>(),
+            [5.0, 5.0, 50.0]
+        );
+    }
+
+    #[test]
+    fn absolute_hysteresis_and_window_validation_are_independent() {
+        let mut settings = crate::layer::settings::Settings::default()
+            .auto_mode
+            .algorithms;
+        settings[0].hysteresis = -1.0;
+        settings[0].auto_window_ms = 0;
+        settings[1].hysteresis = f32::NAN;
+        settings[1].auto_window_ms = 1234;
+        settings[2].hysteresis = 250.0;
+        settings[2].auto_window_ms = 8000;
+        let algorithms = super::validated_auto_algorithms(settings);
+        assert_eq!(
+            algorithms.iter().map(|a| a.hysteresis).collect::<Vec<_>>(),
+            [5.0, 5.0, 250.0]
+        );
+        assert_eq!(
+            algorithms.iter().map(|a| a.window).collect::<Vec<_>>(),
+            [
+                Duration::from_millis(4000),
+                Duration::from_millis(1234),
+                Duration::from_millis(8000)
+            ]
+        );
+        for invalid in [f32::INFINITY, f32::NEG_INFINITY] {
+            let mut settings = crate::layer::settings::Settings::default()
+                .auto_mode
+                .algorithms;
+            settings[2].hysteresis = invalid;
+            assert_eq!(
+                super::validated_auto_algorithms(settings)[2].hysteresis,
+                50.0
+            );
+        }
+        let mut settings = crate::layer::settings::Settings::default()
+            .auto_mode
+            .algorithms;
+        settings[2].hysteresis = 0.0;
+        assert_eq!(
+            super::validated_auto_algorithms(settings)[2].hysteresis,
+            0.0
         );
     }
 

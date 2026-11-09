@@ -10,17 +10,24 @@ Framecap offers the following modes, that can be cycled-through via [F9] (by def
 | --- | --- |
 | OFF | Overlay only, no frame capping |
 | MANUAL | User defined frame capping, use [F10] and [F11] respectively decrease and increase frame cap |
-| AUTO (FPS) | Tries to minimize jitter by limiting FPS to its 10%-low fps + user defined hysteresis, use [F10] and [F11] to adjust hysteresis |
-| AUTO (VRM) | Automatic frame capping so VRM doesn't exceed a target temp + user defined hysteresis, use [F10] and [F11] to adjust hysteresis |
-| AUTO (FAN) | Automatic frame capping so fan speed doesn't exceed a target rpm + user defined hysteresis, use [F10] and [F11] to adjust hysteresis |
+| AUTO (JIT) | Adjusts the cap using 10%-low FPS, GPU load and jitter; [F10] and [F11] adjust the hysteresis in FPS |
+| AUTO (VRM) | Adjusts the cap around a VRM temperature target; [F10] and [F11] adjust the hysteresis in °C |
+| AUTO (FAN) | Adjusts the cap around a fan-speed target; [F10] and [F11] adjust the hysteresis in RPM |
 
-The automatic algorithms are still experimental and being fine-tuned. Your feedback is welcome.
+The automatic algorithms use a per-algorithm rolling measurement window and
+require a persistent adjustment direction before changing the cap. The default
+window is 4 seconds; hysteresis defaults to 5 FPS, 5 °C and 50 RPM for JIT,
+VRM and FAN, respectively. See [automatic regulation](documentation/AUTO-MODE.md)
+for the rules and limitations. The algorithms are still experimental and being
+fine-tuned. Your feedback is welcome.
 
 A short [F12] press cycles the overlay through full, FPS only, and off.
 
 Holding [F12] for one second switches between the `modern` and `ascii` renderers. Background logic remains active when the overlay is hidden.
 
-Framecap's behavior is largely configurable in `framecap.toml`
+Framecap's behavior is largely configurable in `framecap.toml`. Existing
+configurations with older AUTO keys must be updated; see
+[configuration migration](documentation/CONFIGURATION.md#automatic-mode-migration).
 
 # Short installation guide
 

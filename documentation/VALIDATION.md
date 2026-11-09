@@ -34,9 +34,20 @@ method. A CPU presentation interval is not a GPU execution or scanout time.
 Use the Khronos validation layer when available.
 
 For polling comparisons, test 10, 50, 100, and 200 ms with identical hardware,
-scene, smoothing and expiry settings. Observe idle and repeatable load, sensor
-freshness, reaction, regulator decisions, and CPU cost. Do not change defaults
-based on a single unrepeatable run.
+scene, overlay smoothing and AUTO window settings. Observe idle and repeatable
+load, sensor freshness, reaction, regulator decisions, and CPU cost. Do not
+change defaults based on a single unrepeatable run.
+
+For AUTO, test each algorithm with a stable workload, short spikes, sustained
+changes, missing telemetry, and recovery. Record the cap and decision times:
+verify that short reversals do not trigger a change, persistent requests are
+confirmed, and effective changes are separated by at least the configured
+window. Check a fresh collection window and a pre-filled history when switching
+modes, including history retained after a cap change. Compare displayed
+metrics with AUTO's separate window rather than assuming they are identical.
+For VRM and FAN, check how the configured decrease step and confirmation delay
+affect response to sustained high readings; this regulator is not an emergency
+thermal protection mechanism.
 
 For each trial record application/version and scene, duration, GPU/driver,
 display backend, configuration and modes, comparison baseline, measurements,

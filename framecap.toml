@@ -29,13 +29,15 @@ startup = 2                         # Overlay at startup: 0 off, 1 FPS only, 2 f
 background_opacity = 0.5            # Overlay background opacity. Built-in default: 0.25; 0.0 is fully transparent and 1.0 fully opaque; valid range: 0.0-1.0; invalid values use the default.
 fps_color = [255, 255, 0]           # FPS value color as RGB integers (0-255). Built-in default: yellow [255, 255, 0].
 refresh_rate = 25                   # Redraw the overlay every frame; refresh its displayed metrics every N presents.
-gpu_smoothing_window_ms = 1000      # Rolling time window for FPS, 10% low, jitter, GPU load, and hardware sensor readings. Built-in default: 1000 ms; must be positive; invalid values use the default.
+gpu_smoothing_window_ms = 1000      # Overlay rolling window for FPS, 10% low, jitter, GPU load, and sensors; AUTO uses each algorithm's own window. Built-in default: 1000 ms; must be positive.
 scale_2x_min_width_px = 3840        # Minimum swapchain width for doubling overlay text. Built-in default: 3840 px; must be positive; invalid values use the default.
 # FPS, 10% low, and jitter use the same presentation samples and reset together on CAP changes.
 # They all show COLLECT until at least one valid interval is available and gpu_poll_rate_ms has elapsed from startup or the CAP change.
 
 [auto-mode]
 # F9 cycles through the algorithms in this order.
+# Replace old hysteresis_percent, auto_increase_interval_ms, auto_decrease_interval_ms,
+# and measurement_expiry_ms keys: unknown keys reject the entire configuration file.
 algorithm_order = ["gpu_threshold", "vrm_temp", "fan_rpm"]
 
 [auto-mode.algorithms.gpu_threshold]
@@ -44,38 +46,32 @@ gpu_decrease_limit = 90.0       # GPU load at or above which this algorithm may 
 frame_jitter_limit = 2.0        # Jitter (ms) that also permits a decrease below gpu_decrease_limit. Built-in default: 2 ms; valid range: 0-500 ms.
 metric = "fps"                    # Supervised metric; built-in default: "fps".
 target = "low_10_fps"             # Reference metric; built-in default: "low_10_fps".
-hysteresis_percent = 3.0          # Dead band relative to the FPS cap; built-in default: 3%; valid range: 0-100%.
-auto_increase_interval_ms = 4000  # Minimum interval between effective increases; built-in default: 5000 ms; must be positive.
-auto_decrease_interval_ms = 2000  # Minimum interval between effective decreases; built-in default: 5000 ms; must be positive.
+hysteresis = 5.0                  # Absolute FPS margin; built-in default: 5 FPS; finite and non-negative.
+auto_window_ms = 4000             # Rolling collection and persistent direction confirmation; minimum spacing between changes. Default: 4000 ms; positive.
 auto_increase_step_fps = 5.0      # Cap increase per decision; built-in default: 5 FPS; must be finite and positive.
 auto_decrease_step_fps = 5.0      # Cap decrease per decision; built-in default: 5 FPS; must be finite and positive.
 min_fps = 60.0                    # Algorithm cap bounds; built-in default: 1-240 FPS; valid range: 1-240 FPS.
 max_fps = 90.0
-measurement_expiry_ms = 1000      # Maximum age of the GPU load sample; built-in default: 1000 ms; must be positive.
 
 [auto-mode.algorithms.vrm_temp]
 metric = "gpu_vrm_temp_c"         # Supervised metric; built-in default: "gpu_vrm_temp_c".
 target = 100.0                    # Temperature target in degrees C; built-in default: 100 degrees C; must be positive.
-hysteresis_percent = 5.0          # Temperature dead band; built-in default: 5%; valid range: 0-100%.
-auto_increase_interval_ms = 10000 # Minimum interval between effective increases; built-in default: 10000 ms; must be positive.
-auto_decrease_interval_ms = 20000 # Minimum interval between effective decreases; built-in default: 5000 ms; must be positive.
+hysteresis = 5.0                  # Absolute temperature dead band; built-in default: 5 °C; finite and non-negative.
+auto_window_ms = 4000             # Rolling collection and persistent direction confirmation; minimum spacing between changes. Default: 4000 ms; positive.
 auto_increase_step_fps = 5.0      # Cap increase per decision; built-in default: 5 FPS; must be finite and positive.
 auto_decrease_step_fps = 5.0      # Cap decrease per decision; built-in default: 5 FPS; must be finite and positive.
 min_fps = 50.0                    # Algorithm cap bounds; built-in default: 1-240 FPS; valid range: 1-240 FPS.
 max_fps = 144.0
-measurement_expiry_ms = 1000      # Maximum age of the VRM temperature sample; built-in default: 1000 ms; must be positive.
 
 [auto-mode.algorithms.fan_rpm]
 metric = "fan_rpm"                # Supervised metric; built-in default: "fan_rpm".
 target = 2000.0                   # Fan speed target in RPM; built-in default: 2000 RPM; must be positive.
-hysteresis_percent = 5.0          # Fan speed dead band; built-in default: 5%; valid range: 0-100%.
-auto_increase_interval_ms = 5000  # Minimum interval between effective increases; built-in default: 10000 ms; must be positive.
-auto_decrease_interval_ms = 5000  # Minimum interval between effective decreases; built-in default: 5000 ms; must be positive.
+hysteresis = 50.0                 # Absolute fan speed dead band; built-in default: 50 RPM; finite and non-negative.
+auto_window_ms = 4000             # Rolling collection and persistent direction confirmation; minimum spacing between changes. Default: 4000 ms; positive.
 auto_increase_step_fps = 5.0      # Cap increase per decision; built-in default: 5 FPS; must be finite and positive.
 auto_decrease_step_fps = 5.0      # Cap decrease per decision; built-in default: 5 FPS; must be finite and positive.
 min_fps = 60.0                    # Algorithm cap bounds; built-in default: 1-240 FPS; valid range: 1-240 FPS.
 max_fps = 120.0
-measurement_expiry_ms = 1000      # Maximum age of the fan speed sample; built-in default: 1000 ms; must be positive.
 
 [manual-mode]
 step_fps = 5.0      # Manual F10/F11 cap adjustment step. Built-in default: 5 FPS; must be finite and positive; invalid values use the default.

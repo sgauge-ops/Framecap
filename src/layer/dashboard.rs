@@ -108,7 +108,7 @@ pub(super) struct DashboardKey {
     pub target_fps: Option<f32>,
     pub auto_algorithm_index: Option<usize>,
     pub auto_algorithm_label: Option<String>,
-    pub hysteresis_percent: Option<f32>,
+    pub hysteresis: Option<f32>,
     pub auto_target: Option<(AutoMetric, AutoTarget)>,
     pub hotkeys: [Hotkey; 4],
     pub manual_step_fps: f32,
@@ -464,7 +464,7 @@ pub(super) fn layout(
     target_fps: Option<f32>,
     auto_algorithm_index: Option<usize>,
     auto_algorithm_label: Option<&str>,
-    hysteresis_percent: Option<f32>,
+    hysteresis: Option<f32>,
     auto_target: Option<(AutoMetric, AutoTarget)>,
     hotkeys: [Hotkey; 4],
     manual_step_fps: f32,
@@ -533,8 +533,9 @@ pub(super) fn layout(
         .filter(|v| v.is_finite() && *v > 0.0)
         .map(format_fps)
         .unwrap_or_else(|| "OFF".into());
-    let hys = hysteresis_percent
-        .map(|v| format!("{v:.1}%"))
+    let hys = hysteresis
+        .zip(auto_target.map(|(metric, _)| metric))
+        .map(|(value, metric)| format!("{value:.1} {}", metric.hysteresis_unit()))
         .unwrap_or_else(|| "--".into());
     let target = auto_target
         .map(|v| format_auto_target(v, metrics))
@@ -655,7 +656,14 @@ pub(super) fn layout(
     );
     dashboard.rect(LINE, 16, 180, WIDTH - 32, 1);
     let (down, up) = if auto_algorithm_index.is_some() {
-        ("-1%".into(), "+1%".into())
+        auto_target.map_or_else(
+            || ("--".into(), "--".into()),
+            |(metric, _)| {
+                let step = format_fps(metric.hysteresis_step());
+                let unit = metric.hysteresis_unit();
+                (format!("-{step} {unit}"), format!("+{step} {unit}"))
+            },
+        )
     } else if target_fps.is_some_and(|fps| fps.is_finite() && fps > 0.0) {
         (
             format!("-{} FPS", format_fps(manual_step_fps)),
@@ -789,17 +797,18 @@ mod tests {
             ("0.5 ms", 258, 42, 18, 96, VALUE),
             ("AUTO · JIT", 22, 78, 13, 92, MODE),
             ("60 FPS", 128, 88, 14, 72, FEEDBACK),
-            ("5.0%", 202, 88, 14, 56, FEEDBACK),
+            ("5.0 FPS", 202, 88, 14, 56, FEEDBACK),
             ("55 FPS", 259, 88, 14, 95, VALUE),
             ("43 °C", 70, 111, 14, 68, VALUE),
             ("35 %", 314, 132, 14, 40, VALUE),
             ("32.6 W", 70, 159, 14, 125, VALUE),
             ("1240 RPM", 254, 159, 14, 100, VALUE),
             ("F10", 108, 188, 11, 23, FEEDBACK),
-            ("-1%", 140, 188, 11, 50, LABEL),
+            ("-1 FPS", 140, 188, 11, 50, LABEL),
         ] {
             assert_text(&dashboard, text, x, y, size, width, group);
         }
+
         assert!(dashboard
             .groups
             .iter()
@@ -823,6 +832,54 @@ mod tests {
                 BoxStyle::Key,
             ]
         );
+    }
+
+    #[test]
+    fn dashboard_hysteresis_and_hotkeys_use_metric_units() {
+        let metrics = snapshot(60.0, HardwareMetrics::default(), TelemetryStatus::Available);
+        for (metric, target, value, hys, down, up) in [
+            (
+                AutoMetric::Fps,
+                AutoTarget::Low10Fps,
+                5.0,
+                "5.0 FPS",
+                "-1 FPS",
+                "+1 FPS",
+            ),
+            (
+                AutoMetric::GpuVrmTempC,
+                AutoTarget::Value(100.0),
+                5.0,
+                "5.0 °C",
+                "-1 °C",
+                "+1 °C",
+            ),
+            (
+                AutoMetric::FanRpm,
+                AutoTarget::Value(2000.0),
+                50.0,
+                "50.0 RPM",
+                "-10 RPM",
+                "+10 RPM",
+            ),
+        ] {
+            let dashboard = layout(
+                &metrics,
+                OverlayMode::Full,
+                Some(60.0),
+                Some(0),
+                Some("AUTO"),
+                Some(value),
+                Some((metric, target)),
+                KEYS,
+                5.0,
+                OverlayFeedback::default(),
+                1,
+            );
+            assert_text(&dashboard, hys, 202, 88, 14, 56, VALUE);
+            assert_text(&dashboard, down, 140, 188, 11, 50, LABEL);
+            assert_text(&dashboard, up, 228, 188, 11, 50, LABEL);
+        }
     }
 
     #[test]

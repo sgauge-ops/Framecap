@@ -10,12 +10,17 @@ only when requested by the Vulkan loader.
 Presentation times are recorded with a monotonic clock per swapchain. The
 observed frame interval is a CPU-side interval between presentations, not GPU
 execution time or a measurement of display scanout. FPS, the 10th percentile
-FPS ("10% low"), and frame-time jitter share presentation samples over
-`[overlay].gpu_smoothing_window_ms`. They show `COLLECT` after startup or a cap
-change until a valid interval and the minimum collection period are available.
-The optional graph has its own time window.
+FPS ("10% low"), and frame-time jitter displayed in the overlay share
+presentation samples over `[overlay].gpu_smoothing_window_ms`. They show
+`COLLECT` after startup or a cap change until a valid interval and the minimum
+collection period are available.
 
-GPU load and hardware sensors are sampled and smoothed separately. The
+GPU load and hardware sensors are sampled and smoothed separately for the
+overlay. Automatic regulation keeps separate rolling histories of raw
+presentation and telemetry samples per algorithm and swapchain, using each
+algorithm's `auto_window_ms`; these histories survive cap changes. Telemetry
+samples are deduplicated by timestamp. Displayed metrics can therefore differ
+from the metrics used by AUTO, especially after a cap change. The
 implemented GPU load backend is AMD sysfs; telemetry has availability,
 timestamp, and device identity rather than inventing a value when unsupported.
 Hardware readings can be discovered or configured by hwmon device and label
@@ -28,8 +33,9 @@ resources; errors are logged and should not unnecessarily stop presentation.
 The limiter uses a monotonic, absolute deadline per presentation queue, once per
 `vkQueuePresentKHR` call even for multiple swapchains. It resets its schedule
 on target changes and avoids catch-up bursts after missed deadlines. The cap
-can be adjusted manually or by one of the independently timed
-[automatic algorithms](AUTO-MODE.md); OFF disables the limiter while remembering
+can be adjusted manually or by one of the
+[automatic algorithms](AUTO-MODE.md), which confirm a persistent direction
+over their configured window; OFF disables the limiter while remembering
 the last target. VSync or an application cap can result in a lower actual FPS.
 The process-wide X11 input worker shares hotkey events with each registered
 device's regulator and renderer; it is not part of the frame presentation loop.
@@ -41,6 +47,7 @@ device's regulator and renderer; it is not part of the frame presentation loop.
 | [`src/layer/loader.rs`](../src/layer/loader.rs) | Vulkan dispatch and layer integration. |
 | [`src/layer/limiter.rs`](../src/layer/limiter.rs) | Cap controller and per-queue scheduler. |
 | [`src/layer/auto.rs`](../src/layer/auto.rs) | Automatic regulation and hysteresis adjustment. |
+| [`src/layer/auto_metrics.rs`](../src/layer/auto_metrics.rs) | Per-algorithm, per-swapchain rolling AUTO measurement histories. |
 | [`src/layer/renderer.rs`](../src/layer/renderer.rs) | Overlay drawing and presentation metrics. |
 | [`src/layer/telemetry.rs`](../src/layer/telemetry.rs) | GPU and hardware sensor collection and smoothing. |
 | [`src/layer/input_x11.rs`](../src/layer/input_x11.rs) | One process-wide X11/XWayland listener dispatches global shortcuts to registered Vulkan devices. |

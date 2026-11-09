@@ -112,14 +112,12 @@ pub struct AutoAlgorithmSettings {
     pub name: String,
     pub metric: String,
     pub target: AutoTargetSettings,
-    pub hysteresis_percent: f32,
-    pub auto_increase_interval_ms: u64,
-    pub auto_decrease_interval_ms: u64,
+    pub hysteresis: f32,
+    pub auto_window_ms: u64,
     pub auto_increase_step_fps: f32,
     pub auto_decrease_step_fps: f32,
     pub min_fps: f32,
     pub max_fps: f32,
-    pub measurement_expiry_ms: u64,
     pub gpu_threshold: Option<GpuThresholdSettings>,
 }
 
@@ -137,42 +135,36 @@ impl Default for AutoModeSettings {
                     name: "gpu_threshold".to_owned(),
                     metric: "fps".to_owned(),
                     target: AutoTargetSettings::Metric("low_10_fps".to_owned()),
-                    hysteresis_percent: 3.0,
-                    auto_increase_interval_ms: 5000,
-                    auto_decrease_interval_ms: 5000,
+                    hysteresis: 5.0,
+                    auto_window_ms: 4000,
                     auto_increase_step_fps: 5.0,
                     auto_decrease_step_fps: 5.0,
                     min_fps: 1.0,
                     max_fps: 240.0,
-                    measurement_expiry_ms: 1000,
                     gpu_threshold: Some(GpuThresholdSettings::default()),
                 },
                 AutoAlgorithmSettings {
                     name: "vrm_temp".to_owned(),
                     metric: "gpu_vrm_temp_c".to_owned(),
                     target: AutoTargetSettings::Value(100.0),
-                    hysteresis_percent: 5.0,
-                    auto_increase_interval_ms: 10000,
-                    auto_decrease_interval_ms: 5000,
+                    hysteresis: 5.0,
+                    auto_window_ms: 4000,
                     auto_increase_step_fps: 5.0,
                     auto_decrease_step_fps: 5.0,
                     min_fps: 1.0,
                     max_fps: 240.0,
-                    measurement_expiry_ms: 1000,
                     gpu_threshold: None,
                 },
                 AutoAlgorithmSettings {
                     name: "fan_rpm".to_owned(),
                     metric: "fan_rpm".to_owned(),
                     target: AutoTargetSettings::Value(2000.0),
-                    hysteresis_percent: 5.0,
-                    auto_increase_interval_ms: 10000,
-                    auto_decrease_interval_ms: 5000,
+                    hysteresis: 50.0,
+                    auto_window_ms: 4000,
                     auto_increase_step_fps: 5.0,
                     auto_decrease_step_fps: 5.0,
                     min_fps: 1.0,
                     max_fps: 240.0,
-                    measurement_expiry_ms: 1000,
                     gpu_threshold: None,
                 },
             ],
@@ -345,14 +337,12 @@ struct RawAutoModeSettings {
 struct RawAutoAlgorithmSettings {
     metric: Option<String>,
     target: Option<RawAutoTarget>,
-    hysteresis_percent: Option<f32>,
-    auto_increase_interval_ms: Option<u64>,
-    auto_decrease_interval_ms: Option<u64>,
+    hysteresis: Option<f32>,
+    auto_window_ms: Option<u64>,
     auto_increase_step_fps: Option<f32>,
     auto_decrease_step_fps: Option<f32>,
     min_fps: Option<f32>,
     max_fps: Option<f32>,
-    measurement_expiry_ms: Option<u64>,
     gpu_increase_limit: Option<f32>,
     gpu_decrease_limit: Option<f32>,
     frame_jitter_limit: Option<f32>,
@@ -628,13 +618,8 @@ fn parse_ordered_auto_algorithms(
             name,
             metric: raw.metric.unwrap_or_else(|| default.metric.clone()),
             target: target.unwrap_or_else(|| default.target.clone()),
-            hysteresis_percent: raw.hysteresis_percent.unwrap_or(default.hysteresis_percent),
-            auto_increase_interval_ms: raw
-                .auto_increase_interval_ms
-                .unwrap_or(default.auto_increase_interval_ms),
-            auto_decrease_interval_ms: raw
-                .auto_decrease_interval_ms
-                .unwrap_or(default.auto_decrease_interval_ms),
+            hysteresis: raw.hysteresis.unwrap_or(default.hysteresis),
+            auto_window_ms: raw.auto_window_ms.unwrap_or(default.auto_window_ms),
             auto_increase_step_fps: raw
                 .auto_increase_step_fps
                 .unwrap_or(default.auto_increase_step_fps),
@@ -643,9 +628,6 @@ fn parse_ordered_auto_algorithms(
                 .unwrap_or(default.auto_decrease_step_fps),
             min_fps: raw.min_fps.unwrap_or(default.min_fps),
             max_fps: raw.max_fps.unwrap_or(default.max_fps),
-            measurement_expiry_ms: raw
-                .measurement_expiry_ms
-                .unwrap_or(default.measurement_expiry_ms),
             gpu_threshold,
         });
     }
@@ -752,38 +734,32 @@ mod tests {
                 [auto-mode.algorithms.gpu_threshold]
                 metric = "fps"
                 target = "low_10_fps"
-                hysteresis_percent = 4.0
-                auto_increase_interval_ms = 3000
-                auto_decrease_interval_ms = 2000
+                hysteresis = 4.0
+                auto_window_ms = 3000
                 auto_increase_step_fps = 5.0
                 auto_decrease_step_fps = 5.0
                 min_fps = 40.0
                 max_fps = 120.0
-                measurement_expiry_ms = 1000
 
                 [auto-mode.algorithms.vrm_temp]
                 metric = "gpu_vrm_temp_c"
                 target = 100.0
-                hysteresis_percent = 5.0
-                auto_increase_interval_ms = 10000
-                auto_decrease_interval_ms = 5000
+                hysteresis = 5.0
+                auto_window_ms = 10000
                 auto_increase_step_fps = 5.0
                 auto_decrease_step_fps = 5.0
                 min_fps = 40.0
                 max_fps = 120.0
-                measurement_expiry_ms = 2000
 
                 [auto-mode.algorithms.fan_rpm]
                 metric = "fan_rpm"
                 target = 2000.0
-                hysteresis_percent = 5.0
-                auto_increase_interval_ms = 10000
-                auto_decrease_interval_ms = 5000
+                hysteresis = 250.0
+                auto_window_ms = 2000
                 auto_increase_step_fps = 5.0
                 auto_decrease_step_fps = 5.0
                 min_fps = 40.0
                 max_fps = 120.0
-                measurement_expiry_ms = 2000
                 "#,
         )
         .unwrap();
@@ -795,10 +771,44 @@ mod tests {
         assert_eq!(algorithms.len(), 3);
         assert_eq!(algorithms[0].name, "vrm_temp");
         assert_eq!(algorithms[0].metric, "gpu_vrm_temp_c");
+        assert_eq!(
+            (algorithms[0].hysteresis, algorithms[0].auto_window_ms),
+            (5.0, 10000)
+        );
         assert_eq!(algorithms[1].name, "gpu_threshold");
         assert_eq!(algorithms[1].metric, "fps");
+        assert_eq!(
+            (algorithms[1].hysteresis, algorithms[1].auto_window_ms),
+            (4.0, 3000)
+        );
         assert_eq!(algorithms[2].name, "fan_rpm");
         assert_eq!(algorithms[2].metric, "fan_rpm");
+        assert_eq!(
+            (algorithms[2].hysteresis, algorithms[2].auto_window_ms),
+            (250.0, 2000)
+        );
+    }
+
+    #[test]
+    fn absolute_hysteresis_defaults_and_removed_keys() {
+        let defaults = Settings::default().auto_mode.algorithms;
+        assert_eq!(
+            defaults.iter().map(|a| a.hysteresis).collect::<Vec<_>>(),
+            [5.0, 5.0, 50.0]
+        );
+        assert!(defaults.iter().all(|a| a.auto_window_ms == 4000));
+        for key in [
+            "hysteresis_percent",
+            "auto_increase_interval_ms",
+            "auto_decrease_interval_ms",
+            "measurement_expiry_ms",
+        ] {
+            let text = format!("[auto-mode.algorithms.gpu_threshold]\n{key} = 1");
+            assert!(
+                toml::from_str::<RawSettings>(&text).is_err(),
+                "accepted {key}"
+            );
+        }
     }
 
     #[test]

@@ -29,8 +29,8 @@ configuration.
 | `[key-bindings]` | Enable and assign distinct F9-F12 shortcuts. |
 | `[sensors]` | Optional hwmon device/label selectors or path overrides for temperatures, power, and fan speed. |
 | `[overlay]` | Visibility, refresh, smoothing, text scaling, FPS color, and background. |
-| `[auto-mode]` | Algorithm order and GPU/jitter thresholds. |
-| `[auto-mode.algorithms.<name>]` | Metric, target, hysteresis, intervals, steps, FPS bounds, and measurement expiry. |
+| `[auto-mode]` | Algorithm order. |
+| `[auto-mode.algorithms.<name>]` | Metric, target, absolute hysteresis, collection/confirmation window, steps, and FPS bounds; `gpu_threshold` also owns the GPU/jitter thresholds. |
 | `[manual-mode]` | Manual FPS step and bounds. |
 | `[diagnostics]` | Log path and append behavior. |
 
@@ -62,18 +62,41 @@ Framecap discovers sensors using built-in labels; notably, the default fan
 label is `CPU Fan`. An invalid path logs a warning before falling back to that
 discovery. Power channel paths can omit `_input`. Missing or stale readings do
 not produce synthetic sensor values. The `fan_rpm` algorithm uses the fan
-sensor reading, and stops adjusting when it is unavailable or expired.
+sensor reading and stops adjusting when its AUTO window has no valid data.
 
 Legacy settings moved from `[framecap]` are read for migration without
 rewriting the file; conflicting old and new settings are rejected. The old
 single-rule auto-mode keys `jitter_high`, `jitter_low`, and `gpu_saturation`
 are obsolete and do not control the current algorithms.
 
+## Automatic mode migration
+
+The current AUTO configuration is not compatible with the earlier
+per-algorithm timing and percentage hysteresis keys. In every
+`[auto-mode.algorithms.<name>]` section:
+
+1. Remove `hysteresis_percent`, `auto_increase_interval_ms`,
+   `auto_decrease_interval_ms`, and `measurement_expiry_ms`.
+2. Set `hysteresis` in the algorithm's units and `auto_window_ms` in
+   milliseconds. Built-in values are 5 FPS for `gpu_threshold`, 5 °C for
+   `vrm_temp`, 50 RPM for `fan_rpm`, and 4000 ms for each window.
+3. Keep or retune the existing target, FPS steps, bounds, and GPU/jitter
+   thresholds as needed. Percentage and absolute hysteresis are not generally
+   equivalent; in particular, the FPS cap can change.
+
+The same window governs collection, direction confirmation, and minimum
+spacing between effective adjustments. Removing the old keys is essential:
+unknown keys reject the **entire** configuration file, not just that
+algorithm, and Framecap falls back to built-in settings. Update the actual
+file found by the lookup order above, then restart the application.
+See [automatic regulation](AUTO-MODE.md) for timing and decision details.
+
 ## Keyboard shortcuts
 
 The defaults are F9 to cycle manual, configured automatic algorithms, OFF,
 then manual; F10/F11 decrease/increase the manual cap or active automatic
-hysteresis; a short F12 press cycles the overlay through full, FPS only, and off.
+hysteresis (by 1 FPS, 1 °C, or 10 RPM according to the active algorithm);
+a short F12 press cycles the overlay through full, FPS only, and off.
 Holding F12 for one second switches between `modern` and `ascii` without
 waiting for release or changing the display mode. The switch is temporary
 and also uses the configured `hotkey_toggle` if reassigned. Limiter OFF

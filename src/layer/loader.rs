@@ -1,4 +1,5 @@
 use crate::layer::auto::{AutoEvaluationSchedule, AutoRegulator};
+use crate::layer::auto_metrics::AutoMetricsHistory;
 use crate::layer::config::{Config, Hotkey};
 use crate::layer::diagnostics;
 use crate::layer::input_x11::HotkeyWorker;
@@ -103,12 +104,14 @@ struct DeviceState {
     frame_cap: Arc<FrameCapController>,
     overlay_mode: Arc<OverlayModeState>,
     active_auto_algorithm: Arc<AtomicI32>,
-    auto_hysteresis_percent: Arc<Vec<AtomicU32>>,
+    auto_hysteresis: Arc<Vec<AtomicU32>>,
     hotkey_config: [Hotkey; 4],
     manual_step_fps: f32,
     overlay_feedback: Arc<OverlayFeedbackState>,
     auto_regulator: AutoRegulator,
     auto_evaluation_schedule: AutoEvaluationSchedule,
+    auto_metrics: HashMap<u64, Vec<AutoMetricsHistory>>,
+    auto_evaluation_swapchain: Option<u64>,
     schedulers: HashMap<usize, FrameScheduler>,
     hotkeys: Option<HotkeyWorker>,
     swapchains: HashMap<u64, VulkanSwapchainRenderer>,
@@ -125,6 +128,8 @@ struct TelemetrySample {
     gpu: GpuMeasurement,
     hardware: HardwareMetrics,
     hardware_timestamp: Instant,
+    raw_gpu: GpuMeasurement,
+    raw_hardware: HardwareMetrics,
 }
 
 impl TelemetryWorker {
@@ -142,11 +147,14 @@ impl TelemetryWorker {
         let mut initial_hardware = hwmon_provider.get_metrics();
         initial_hardware.cpu_load_percent = cpu_usage.get_load_percent();
         let initial_hardware_timestamp = Instant::now();
-        let initial_hardware = hardware_smoother.add(initial_hardware, initial_hardware_timestamp);
+        let smoothed_hardware =
+            hardware_smoother.add(initial_hardware.clone(), initial_hardware_timestamp);
         let latest = Arc::new(parking_lot::RwLock::new(TelemetrySample {
-            gpu: smoother.add(initial),
-            hardware: initial_hardware,
+            gpu: smoother.add(initial.clone()),
+            hardware: smoothed_hardware,
             hardware_timestamp: initial_hardware_timestamp,
+            raw_gpu: initial,
+            raw_hardware: initial_hardware,
         }));
         let stop = Arc::new(AtomicBool::new(false));
         let worker_latest = Arc::clone(&latest);
@@ -161,11 +169,14 @@ impl TelemetryWorker {
                 let mut hardware = hwmon_provider.get_metrics();
                 hardware.cpu_load_percent = cpu_usage.get_load_percent();
                 let hardware_timestamp = Instant::now();
-                let hardware = hardware_smoother.add(hardware, hardware_timestamp);
+                let smoothed_hardware = hardware_smoother.add(hardware.clone(), hardware_timestamp);
+                let gpu = provider.get_metric();
                 *worker_latest.write() = TelemetrySample {
-                    gpu: smoother.add(provider.get_metric()),
-                    hardware,
+                    gpu: smoother.add(gpu.clone()),
+                    hardware: smoothed_hardware,
                     hardware_timestamp,
+                    raw_gpu: gpu,
+                    raw_hardware: hardware,
                 };
             }
         });
@@ -725,13 +736,13 @@ pub unsafe extern "system" fn vkCreateDevice(
             .iter()
             .map(|algorithm| {
                 format!(
-                    "{}(metric={:?},target={:?},hysteresis={}%,interval={}ms/{}ms)",
+                    "{}(metric={:?},target={:?},hysteresis={} {},window={}ms)",
                     algorithm.name,
                     algorithm.metric,
                     algorithm.target,
-                    algorithm.hysteresis_percent,
-                    algorithm.increase_interval.as_millis(),
-                    algorithm.decrease_interval.as_millis()
+                    algorithm.hysteresis,
+                    algorithm.metric.hysteresis_unit(),
+                    algorithm.window.as_millis()
                 )
             })
             .collect::<Vec<_>>()
@@ -774,11 +785,11 @@ pub unsafe extern "system" fn vkCreateDevice(
             -1
         }));
         let overlay_feedback = Arc::new(OverlayFeedbackState::new());
-        let auto_hysteresis_percent = Arc::new(
+        let auto_hysteresis = Arc::new(
             config
                 .auto_algorithms
                 .iter()
-                .map(|algorithm| AtomicU32::new(algorithm.hysteresis_percent.to_bits()))
+                .map(|algorithm| AtomicU32::new(algorithm.hysteresis.to_bits()))
                 .collect::<Vec<_>>(),
         );
         if config.input_enabled {
@@ -796,7 +807,12 @@ pub unsafe extern "system" fn vkCreateDevice(
             Arc::clone(&overlay_mode),
             Arc::clone(&overlay_renderer),
             Arc::clone(&active_auto_algorithm),
-            Arc::clone(&auto_hysteresis_percent),
+            Arc::clone(&auto_hysteresis),
+            config
+                .auto_algorithms
+                .iter()
+                .map(|algorithm| algorithm.metric)
+                .collect(),
             config.manual_step_fps,
             Arc::clone(&overlay_feedback),
         );
@@ -846,11 +862,13 @@ pub unsafe extern "system" fn vkCreateDevice(
                 auto_evaluation_schedule: AutoEvaluationSchedule::new(Duration::from_millis(
                     config.gpu_poll_rate_ms,
                 )),
+                auto_metrics: HashMap::new(),
+                auto_evaluation_swapchain: None,
                 queue_families: HashMap::new(),
                 frame_cap,
                 overlay_mode,
                 active_auto_algorithm,
-                auto_hysteresis_percent,
+                auto_hysteresis,
                 hotkey_config: [
                     config.hotkey_auto,
                     config.hotkey_up,
@@ -1018,6 +1036,10 @@ pub unsafe extern "system" fn vkDestroySwapchainKHR(
     if let Some(state) = devices().lock().get(&dispatch_key(device)).cloned() {
         let (next_gdpa, ash_device, mut renderer) = {
             let mut state = state.lock();
+            state.auto_metrics.remove(&swapchain.as_raw());
+            if state.auto_evaluation_swapchain == Some(swapchain.as_raw()) {
+                state.auto_evaluation_swapchain = None;
+            }
             (
                 state.next_gdpa,
                 state.ash_device.clone(),
@@ -1184,18 +1206,19 @@ pub unsafe extern "system" fn vkQueuePresentKHR(
         let mut cap_generation = state.frame_cap.generation();
         let active_mode = state.active_auto_algorithm.load(Ordering::Relaxed);
         let auto_algorithm_index = (active_mode > 0).then_some((active_mode - 1) as usize);
+        state.auto_regulator.set_active(auto_algorithm_index);
         let auto_algorithm_label =
             auto_algorithm_index.and_then(|index| state.auto_regulator.overlay_label(index));
         let auto_target =
             auto_algorithm_index.and_then(|index| state.auto_regulator.overlay_target(index));
         let mut target_fps = state.frame_cap.target_fps();
-        let hysteresis_percent = auto_algorithm_index
-            .and_then(|index| state.auto_hysteresis_percent.get(index))
+        let hysteresis = auto_algorithm_index
+            .and_then(|index| state.auto_hysteresis.get(index))
             .map(|value| f32::from_bits(value.load(Ordering::Relaxed)));
         let frame_cap = Arc::clone(&state.frame_cap);
         let overlay_mode = state.overlay_mode.mode();
         for (&swapchain, &image_index) in swapchains.iter().zip(image_indices) {
-            let Some((metrics, displayed_metrics)) = state
+            let Some((_presentation_metrics, displayed_metrics)) = state
                 .swapchains
                 .get_mut(&swapchain.as_raw())
                 .map(|renderer| {
@@ -1210,25 +1233,59 @@ pub unsafe extern "system" fn vkQueuePresentKHR(
                 continue;
             };
             let evaluation_time = Instant::now();
+            let windows: Vec<_> = state.auto_regulator.windows().collect();
+            let histories = state
+                .auto_metrics
+                .entry(swapchain.as_raw())
+                .or_insert_with(|| windows.into_iter().map(AutoMetricsHistory::new).collect());
+            for history in histories.iter_mut() {
+                history.record(
+                    evaluation_time,
+                    &metrics.raw_gpu,
+                    &metrics.raw_hardware,
+                    metrics.hardware_timestamp,
+                );
+            }
+            if state.auto_evaluation_schedule.has_gap(evaluation_time) {
+                if let Some(index) = auto_algorithm_index {
+                    state.auto_regulator.reset_pending(index);
+                }
+            }
             let evaluation_due = state
                 .auto_evaluation_schedule
                 .should_evaluate(evaluation_time, auto_algorithm_index);
             if let Some(algorithm_index) = auto_algorithm_index.filter(|_| evaluation_due) {
-                if let Some((old, new)) = state.auto_regulator.evaluate(
-                    algorithm_index,
-                    &metrics,
-                    evaluation_time,
-                    hysteresis_percent.unwrap_or_default(),
-                    &frame_cap,
-                ) {
+                if state.auto_evaluation_swapchain != Some(swapchain.as_raw()) {
+                    state.auto_regulator.reset_pending(algorithm_index);
+                    state.auto_evaluation_swapchain = Some(swapchain.as_raw());
+                }
+                let metric = state.auto_regulator.metric(algorithm_index);
+                let auto_metrics = metric.and_then(|metric| {
                     state
-                        .overlay_feedback
-                        .record(OverlayFeedbackEvent::CapChanged);
-                    diagnostics::info(format!(
-                        "[AUTO] FPS limit adjusted: {old:.1} -> {new:.1} fps"
-                    ));
-                    target_fps = state.frame_cap.target_fps();
-                    cap_generation = state.frame_cap.generation();
+                        .auto_metrics
+                        .get_mut(&swapchain.as_raw())
+                        .and_then(|histories| histories.get_mut(algorithm_index))
+                        .and_then(|history| history.snapshot(evaluation_time, metric))
+                });
+                if let (Some(auto_metrics), Some(hysteresis)) = (auto_metrics, hysteresis) {
+                    if let Some((old, new)) = state.auto_regulator.evaluate(
+                        algorithm_index,
+                        &auto_metrics,
+                        evaluation_time,
+                        hysteresis,
+                        &frame_cap,
+                    ) {
+                        state
+                            .overlay_feedback
+                            .record(OverlayFeedbackEvent::CapChanged);
+                        diagnostics::info(format!(
+                            "[AUTO] FPS limit adjusted: {old:.1} -> {new:.1} fps"
+                        ));
+                        target_fps = state.frame_cap.target_fps();
+                        cap_generation = state.frame_cap.generation();
+                    }
+                } else {
+                    state.auto_regulator.reset_pending(algorithm_index);
                 }
             }
             if overlay_mode != OverlayMode::Off {
@@ -1247,7 +1304,7 @@ pub unsafe extern "system" fn vkQueuePresentKHR(
                     target_fps,
                     auto_algorithm_index,
                     auto_algorithm_label,
-                    hysteresis_percent,
+                    hysteresis,
                     auto_target,
                     hotkey_config,
                     manual_step_fps,

@@ -1,4 +1,5 @@
 pub mod auto;
+mod auto_metrics;
 pub mod config;
 pub mod diagnostics;
 pub mod input_x11;
