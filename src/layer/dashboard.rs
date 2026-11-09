@@ -558,7 +558,7 @@ pub(super) fn layout(
         128,
         88,
         14,
-        72,
+        68,
         true,
         if feedback.cap_changed {
             FEEDBACK
@@ -568,7 +568,7 @@ pub(super) fn layout(
     );
     dashboard.text(
         "HYS",
-        202,
+        196,
         76,
         11,
         45,
@@ -581,7 +581,7 @@ pub(super) fn layout(
     );
     dashboard.text(
         &hys,
-        202,
+        196,
         88,
         14,
         56,
@@ -592,8 +592,32 @@ pub(super) fn layout(
             VALUE
         },
     );
-    dashboard.text("TARGET", 259, 76, 11, 70, true, LABEL);
-    dashboard.text(&target, 259, 88, 14, 95, true, VALUE);
+    dashboard.text(
+        "TARGET",
+        259,
+        76,
+        11,
+        70,
+        true,
+        if feedback.target_changed {
+            FEEDBACK
+        } else {
+            LABEL
+        },
+    );
+    dashboard.text(
+        &target,
+        259,
+        88,
+        14,
+        95,
+        true,
+        if feedback.target_changed {
+            FEEDBACK
+        } else {
+            VALUE
+        },
+    );
     dashboard.rect(LINE, 16, 105, WIDTH - 32, 1);
     let hardware = metrics.hardware_metrics();
     let display = |value: Option<f32>, precision: usize, unit: &str| {
@@ -658,11 +682,7 @@ pub(super) fn layout(
     let (down, up) = if auto_algorithm_index.is_some() {
         auto_target.map_or_else(
             || ("--".into(), "--".into()),
-            |(metric, _)| {
-                let step = format_fps(metric.hysteresis_step());
-                let unit = metric.hysteresis_unit();
-                (format!("-{step} {unit}"), format!("+{step} {unit}"))
-            },
+            |(metric, _)| auto_key_hints(Some(metric), hysteresis),
         )
     } else if target_fps.is_some_and(|fps| fps.is_finite() && fps > 0.0) {
         (
@@ -787,6 +807,7 @@ mod tests {
                 hotkey: Some(Hotkey::F6),
                 cap_changed: true,
                 hysteresis_changed: true,
+                target_changed: false,
             },
             1,
         );
@@ -796,8 +817,8 @@ mod tests {
             ("55 FPS", 150, 42, 18, 104, VALUE),
             ("0.5 ms", 258, 42, 18, 96, VALUE),
             ("AUTO · JIT", 22, 78, 13, 92, MODE),
-            ("60 FPS", 128, 88, 14, 72, FEEDBACK),
-            ("5.0 FPS", 202, 88, 14, 56, FEEDBACK),
+            ("60 FPS", 128, 88, 14, 68, FEEDBACK),
+            ("5.0 FPS", 196, 88, 14, 56, FEEDBACK),
             ("55 FPS", 259, 88, 14, 95, VALUE),
             ("43 °C", 70, 111, 14, 68, VALUE),
             ("35 %", 314, 132, 14, 40, VALUE),
@@ -851,16 +872,16 @@ mod tests {
                 AutoTarget::Value(100.0),
                 5.0,
                 "5.0 °C",
-                "-1 °C",
-                "+1 °C",
+                "-5 °C",
+                "+5 °C",
             ),
             (
                 AutoMetric::FanRpm,
                 AutoTarget::Value(2000.0),
                 50.0,
                 "50.0 RPM",
-                "-10 RPM",
-                "+10 RPM",
+                "-50 RPM",
+                "+50 RPM",
             ),
         ] {
             let dashboard = layout(
@@ -876,9 +897,57 @@ mod tests {
                 OverlayFeedback::default(),
                 1,
             );
-            assert_text(&dashboard, hys, 202, 88, 14, 56, VALUE);
+            assert_text(&dashboard, hys, 196, 88, 14, 56, VALUE);
             assert_text(&dashboard, down, 140, 188, 11, 50, LABEL);
             assert_text(&dashboard, up, 228, 188, 11, 50, LABEL);
+        }
+    }
+
+    #[test]
+    fn dashboard_highlights_adjusted_sensor_target() {
+        let metrics = snapshot(60.0, HardwareMetrics::default(), TelemetryStatus::Available);
+        let dashboard = layout(
+            &metrics,
+            OverlayMode::Full,
+            Some(60.0),
+            Some(1),
+            Some("VRM"),
+            Some(5.0),
+            Some((AutoMetric::GpuVrmTempC, AutoTarget::Value(105.0))),
+            KEYS,
+            5.0,
+            OverlayFeedback {
+                target_changed: true,
+                ..OverlayFeedback::default()
+            },
+            1,
+        );
+        assert_text(&dashboard, "TARGET", 259, 76, 11, 70, FEEDBACK);
+        assert_text(&dashboard, "105 °C", 259, 88, 14, 95, FEEDBACK);
+    }
+
+    #[test]
+    fn hysteresis_fields_shift_left_at_both_scales() {
+        let metrics = snapshot(60.0, HardwareMetrics::default(), TelemetryStatus::Available);
+        for scale in [1, 2] {
+            let dashboard = layout(
+                &metrics,
+                OverlayMode::Full,
+                Some(239.9),
+                Some(2),
+                Some("FAN"),
+                Some(50.0),
+                Some((AutoMetric::FanRpm, AutoTarget::Value(2000.0))),
+                KEYS,
+                5.0,
+                OverlayFeedback::default(),
+                scale,
+            );
+            assert_text(&dashboard, "HYS", 196, 76, 11, 45, LABEL);
+            assert_text(&dashboard, "50.0 RPM", 196, 88, 14, 56, VALUE);
+            assert_text(&dashboard, "239.9 FPS", 128, 88, 14, 68, VALUE);
+            assert_text(&dashboard, "TARGET", 259, 76, 11, 70, LABEL);
+            assert_text(&dashboard, "2000 RPM", 259, 88, 14, 95, VALUE);
         }
     }
 

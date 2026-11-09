@@ -8,6 +8,8 @@ changes, not necessarily when development originally took place.
 
 | Date | Changes |
 | --- | --- |
+| 2026-11-09 | Shifted the HYS label and value one character left in the modern overlay. |
+| 2026-11-09 | Changed VRM and FAN F6/F7 controls to adjust the active target by the configured hysteresis, leaving hysteresis unchanged; changes are temporary. JIT continues to adjust hysteresis. |
 | 2026-11-09 | Changed global shortcut keys from F9–F12 to F5–F8 to avoid Steam conflicts. Existing explicit key bindings must be updated; invalid or duplicate bindings disable global shortcuts. |
 | 2026-11-09 | Moved the initial cap to `[manual-mode].startup_fps`; the legacy `[framecap].target_fps` remains readable with a migration warning and the new key takes precedence. |
 | 2026-11-09 | Changed all AUTO algorithms to per-algorithm rolling measurement windows and persistent direction confirmation, retaining history across cap changes. `auto_window_ms` defaults to 4000 ms and also sets the minimum interval between adjustments. |

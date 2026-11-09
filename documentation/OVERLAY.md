@@ -57,8 +57,8 @@ the configured temperature in °C for VRM, or the configured speed in RPM for
 FAN. JIT shows
 `TARGET: COLLECT FPS` while its reference is unavailable; MANUAL and OFF show
 `TARGET: --`. A cap change highlights `CAP`, a change in active
-hysteresis highlights `HYS`, and a key press highlights that key for one
-second. These highlights are independent. HYS is displayed in FPS for JIT,
+hysteresis highlights `HYS`, an adjusted VRM/FAN target highlights `TARGET`,
+and a key press highlights that key for one second. These highlights are independent. HYS is displayed in FPS for JIT,
 °C for VRM, and RPM for FAN; the shortcut hints show the corresponding
 adjustment step.
 

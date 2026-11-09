@@ -792,6 +792,12 @@ pub unsafe extern "system" fn vkCreateDevice(
                 .map(|algorithm| AtomicU32::new(algorithm.hysteresis.to_bits()))
                 .collect::<Vec<_>>(),
         );
+        let auto_regulator = AutoRegulator::new(
+            config.auto_algorithms.clone(),
+            config.gpu_increase_limit,
+            config.gpu_decrease_limit,
+            config.frame_jitter_limit_ms,
+        );
         if config.input_enabled {
             diagnostics::info("registering device with process-wide X11/XWayland hotkey listener");
         } else {
@@ -808,6 +814,7 @@ pub unsafe extern "system" fn vkCreateDevice(
             Arc::clone(&overlay_renderer),
             Arc::clone(&active_auto_algorithm),
             Arc::clone(&auto_hysteresis),
+            auto_regulator.targets(),
             config
                 .auto_algorithms
                 .iter()
@@ -853,12 +860,7 @@ pub unsafe extern "system" fn vkCreateDevice(
                 overlay_background_opacity: config.overlay_background_opacity,
                 overlay_renderer,
                 overlay_fps_color: config.overlay_fps_color,
-                auto_regulator: AutoRegulator::new(
-                    config.auto_algorithms.clone(),
-                    config.gpu_increase_limit,
-                    config.gpu_decrease_limit,
-                    config.frame_jitter_limit_ms,
-                ),
+                auto_regulator,
                 auto_evaluation_schedule: AutoEvaluationSchedule::new(Duration::from_millis(
                     config.gpu_poll_rate_ms,
                 )),

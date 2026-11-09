@@ -98,8 +98,8 @@ See [automatic regulation](AUTO-MODE.md) for timing and decision details.
 ## Keyboard shortcuts
 
 The defaults are F5 to cycle manual, configured automatic algorithms, OFF,
-then manual; F6/F7 decrease/increase the manual cap or active automatic
-hysteresis (by 1 FPS, 1 °C, or 10 RPM according to the active algorithm);
+then manual; F6/F7 decrease/increase the manual cap, JIT hysteresis by 1 FPS,
+or the VRM/FAN target by its configured hysteresis;
 a short F8 press cycles the overlay through full, FPS only, and off.
 Holding F8 for one second switches between `modern` and `ascii` without
 waiting for release or changing the display mode. The switch is temporary

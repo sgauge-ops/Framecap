@@ -90,6 +90,7 @@ pub enum OverlayFeedbackEvent {
     HotkeyPressed(Hotkey),
     CapChanged,
     HysteresisChanged,
+    TargetChanged,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -97,6 +98,7 @@ pub struct OverlayFeedback {
     pub hotkey: Option<Hotkey>,
     pub cap_changed: bool,
     pub hysteresis_changed: bool,
+    pub target_changed: bool,
 }
 
 #[derive(Default)]
@@ -104,6 +106,7 @@ struct OverlayFeedbackTimestamps {
     hotkey: Option<(Hotkey, Instant)>,
     cap: Option<Instant>,
     hysteresis: Option<Instant>,
+    target: Option<Instant>,
 }
 
 pub struct OverlayFeedbackState {
@@ -128,6 +131,7 @@ impl OverlayFeedbackState {
             }
             OverlayFeedbackEvent::CapChanged => feedback.cap = Some(now),
             OverlayFeedbackEvent::HysteresisChanged => feedback.hysteresis = Some(now),
+            OverlayFeedbackEvent::TargetChanged => feedback.target = Some(now),
         }
     }
 
@@ -145,6 +149,7 @@ impl OverlayFeedbackState {
                 .map(|(hotkey, _)| hotkey),
             cap_changed: feedback.cap.is_some_and(visible),
             hysteresis_changed: feedback.hysteresis.is_some_and(visible),
+            target_changed: feedback.target.is_some_and(visible),
         }
     }
 }
@@ -250,18 +255,12 @@ impl Renderer {
         target_fps: Option<f32>,
         auto_algorithm_index: Option<usize>,
         auto_metric: Option<AutoMetric>,
+        hysteresis: Option<f32>,
         hotkeys: [Hotkey; 4],
         manual_step_fps: f32,
     ) -> String {
         let (down_hint, up_hint) = if auto_algorithm_index.is_some() {
-            auto_metric.map_or_else(
-                || ("--".into(), "--".into()),
-                |metric| {
-                    let step = format_fps(metric.hysteresis_step());
-                    let unit = metric.hysteresis_unit();
-                    (format!("-{step} {unit}"), format!("+{step} {unit}"))
-                },
-            )
+            auto_key_hints(auto_metric, hysteresis)
         } else if target_fps.is_some_and(|fps| fps.is_finite() && fps > 0.0) {
             (
                 format!("-{} FPS", format_fps(manual_step_fps)),
@@ -460,6 +459,27 @@ fn append_at_column(text: &mut String, column: usize, segment: &str) {
     let padding = column.saturating_sub(text.chars().count());
     text.push_str(&" ".repeat(padding));
     text.push_str(segment);
+}
+
+/// Formats the auto-mode F6/F7 hints: VRM/FAN move the target by the hysteresis, FPS by its metric step.
+pub(super) fn auto_key_hints(
+    metric: Option<AutoMetric>,
+    hysteresis: Option<f32>,
+) -> (String, String) {
+    let Some(metric) = metric else {
+        return ("--".into(), "--".into());
+    };
+    let step = match metric {
+        AutoMetric::Fps => Some(metric.hysteresis_step()),
+        AutoMetric::GpuVrmTempC | AutoMetric::FanRpm => hysteresis,
+    };
+    match step.filter(|step| step.is_finite() && *step > 0.0) {
+        Some(step) => {
+            let (step, unit) = (step.to_string(), metric.hysteresis_unit());
+            (format!("-{step} {unit}"), format!("+{step} {unit}"))
+        }
+        None => ("--".into(), "--".into()),
+    }
 }
 
 /// Formats an FPS value without unnecessary trailing zeroes.
@@ -1229,6 +1249,7 @@ impl VulkanSwapchainRenderer {
                         target_fps,
                         auto_algorithm_index,
                         auto_target.map(|(metric, _)| metric),
+                        hysteresis,
                         hotkeys,
                         manual_step_fps,
                     ),
@@ -1522,6 +1543,18 @@ impl VulkanSwapchainRenderer {
                     ),
                 ));
             }
+            if feedback.target_changed {
+                let target = auto_target
+                    .map(|target| format_auto_target(target, metrics))
+                    .unwrap_or_else(|| "--".to_owned());
+                status_feedback_rectangles.extend(Renderer::feedback_rects(
+                    &status_text,
+                    [self.extent.width, self.extent.height],
+                    scale,
+                    status_top,
+                    &format!("TARGET: {target}"),
+                ));
+            }
             let status_feedback_rectangles = status_feedback_rectangles
                 .into_iter()
                 .map(|rect| {
@@ -1701,6 +1734,7 @@ mod tests {
             target_fps,
             auto_algorithm_index,
             auto_algorithm_index.map(|_| AutoMetric::Fps),
+            Some(5.0),
             HOTKEYS,
             5.0,
         )
@@ -2013,7 +2047,7 @@ mod tests {
     #[test]
     /// Checks that text columns remain anchored with the largest manual step.
     fn overlay_column_anchors_are_stable_with_maximum_manual_step() {
-        let keys = Renderer::target_text(Some(240.0), None, None, HOTKEYS, 240.0);
+        let keys = Renderer::target_text(Some(240.0), None, None, None, HOTKEYS, 240.0);
         let status = Renderer::status_text(Some(240.0), None, None, None, None);
         assert_eq!(keys.find("| [F6]").unwrap(), FIRST_COLUMN);
         assert_eq!(keys.find("| [F7]").unwrap(), SECOND_COLUMN);
@@ -2026,7 +2060,7 @@ mod tests {
     #[test]
     /// Checks that fractional target FPS values retain their decimal precision.
     fn target_text_preserves_fractional_fps_settings() {
-        let text = Renderer::target_text(Some(77.5), None, None, HOTKEYS, 5.5);
+        let text = Renderer::target_text(Some(77.5), None, None, None, HOTKEYS, 5.5);
         assert!(text.contains("| [F6]  -5.5 FPS"));
         assert!(text.contains("| [F7]  +5.5 FPS"));
         assert!(Renderer::status_text(
@@ -2043,7 +2077,7 @@ mod tests {
     /// Checks custom key hints and highlighting of the pressed key.
     fn overlay_key_hints_follow_custom_bindings_and_highlight_the_pressed_key() {
         let hotkeys = [Hotkey::F8, Hotkey::F5, Hotkey::F6, Hotkey::F7];
-        let text = Renderer::target_text(Some(60.0), None, None, hotkeys, 2.5);
+        let text = Renderer::target_text(Some(60.0), None, None, None, hotkeys, 2.5);
         assert!(text.contains("[F8] CYCLE MODE"));
         assert!(text.contains("[F6]  -2.5 FPS"));
         let highlights = Renderer::feedback_rects(&text, [1200, 100], 1, 8, "[F5]");
@@ -2074,8 +2108,8 @@ mod tests {
     fn auto_hysteresis_and_hotkey_hints_use_metric_units() {
         for (metric, value, unit, step) in [
             (AutoMetric::Fps, 5.0, "FPS", "1"),
-            (AutoMetric::GpuVrmTempC, 5.0, "°C", "1"),
-            (AutoMetric::FanRpm, 50.0, "RPM", "10"),
+            (AutoMetric::GpuVrmTempC, 5.0, "°C", "5"),
+            (AutoMetric::FanRpm, 50.0, "RPM", "50"),
         ] {
             let status = Renderer::status_text(
                 Some(60.0),
@@ -2088,13 +2122,22 @@ mod tests {
             assert!(status.contains(&field));
             assert!(!Renderer::feedback_rects(&status, [1200, 100], 1, 17, &field).is_empty());
             assert_eq!(char_column(&status, "| TARGET:"), THIRD_COLUMN);
-            let hints = Renderer::target_text(Some(60.0), Some(0), Some(metric), HOTKEYS, 5.0);
+            let hints =
+                Renderer::target_text(Some(60.0), Some(0), Some(metric), Some(value), HOTKEYS, 5.0);
             assert!(hints.contains(&format!("-{step} {unit}")));
             assert!(hints.contains(&format!("+{step} {unit}")));
             assert_eq!(char_column(&hints, "| [F8]"), THIRD_COLUMN);
         }
-        let hints = Renderer::target_text(Some(60.0), Some(0), None, HOTKEYS, 5.0);
+        let hints = Renderer::target_text(Some(60.0), Some(0), None, None, HOTKEYS, 5.0);
         assert!(hints.contains("| [F6]  --"));
+        assert_eq!(
+            auto_key_hints(Some(AutoMetric::FanRpm), Some(0.05)),
+            ("-0.05 RPM".into(), "+0.05 RPM".into())
+        );
+        assert_eq!(
+            auto_key_hints(Some(AutoMetric::FanRpm), Some(0.0)),
+            ("--".into(), "--".into())
+        );
         assert!(
             Renderer::status_text(Some(60.0), Some("AUTO"), Some(5.0), None, None)
                 .contains("HYS:    --")
@@ -2306,14 +2349,19 @@ mod tests {
             hotkey: Some((Hotkey::F6, start)),
             cap: Some(later),
             hysteresis: Some(later),
+            target: Some(later),
         };
         let current = feedback.current(start + FEEDBACK_VISIBLE_FOR);
         assert_eq!(current.hotkey, Some(Hotkey::F6));
-        assert!(current.cap_changed && current.hysteresis_changed);
+        assert!(current.cap_changed && current.hysteresis_changed && current.target_changed);
         let independently_expired =
             feedback.current(start + FEEDBACK_VISIBLE_FOR + Duration::from_millis(1));
         assert_eq!(independently_expired.hotkey, None);
-        assert!(independently_expired.cap_changed && independently_expired.hysteresis_changed);
+        assert!(
+            independently_expired.cap_changed
+                && independently_expired.hysteresis_changed
+                && independently_expired.target_changed
+        );
         let expired = feedback.current(later + FEEDBACK_VISIBLE_FOR + Duration::from_millis(1));
         assert_eq!(expired, OverlayFeedback::default());
     }

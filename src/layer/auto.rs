@@ -1,7 +1,8 @@
 use crate::layer::config::{AutoAlgorithmConfig, AutoMetric, AutoTarget};
 use crate::layer::lib::{MetricsSnapshot, TelemetryStatus};
 use crate::layer::limiter::FrameCapController;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 struct AlgorithmState {
@@ -10,6 +11,7 @@ struct AlgorithmState {
     last_adjustment: Option<Instant>,
     last_cap_generation: Option<u64>,
     last_hysteresis: Option<f32>,
+    last_target_version: Option<u64>,
 }
 
 pub struct AutoRegulator {
@@ -18,6 +20,7 @@ pub struct AutoRegulator {
     gpu_decrease_limit: f32,
     frame_jitter_limit_ms: f32,
     active_algorithm: Option<usize>,
+    targets: Arc<Vec<AtomicU64>>,
 }
 
 pub struct AutoEvaluationSchedule {
@@ -73,6 +76,18 @@ impl AutoRegulator {
         gpu_decrease_limit: f32,
         frame_jitter_limit_ms: f32,
     ) -> Self {
+        let targets = Arc::new(
+            algorithms
+                .iter()
+                .map(|config| {
+                    let value = match config.target {
+                        AutoTarget::Value(value) => value,
+                        AutoTarget::Low10Fps => 0.0,
+                    };
+                    AtomicU64::new(u64::from(value.to_bits()))
+                })
+                .collect(),
+        );
         Self {
             algorithms: algorithms
                 .into_iter()
@@ -82,13 +97,19 @@ impl AutoRegulator {
                     last_adjustment: None,
                     last_cap_generation: None,
                     last_hysteresis: None,
+                    last_target_version: None,
                 })
                 .collect(),
             gpu_increase_limit,
             gpu_decrease_limit,
             frame_jitter_limit_ms,
             active_algorithm: None,
+            targets,
         }
+    }
+
+    pub fn targets(&self) -> Arc<Vec<AtomicU64>> {
+        Arc::clone(&self.targets)
     }
 
     pub fn set_active(&mut self, algorithm_index: Option<usize>) {
@@ -128,7 +149,13 @@ impl AutoRegulator {
 
     pub fn overlay_target(&self, algorithm_index: usize) -> Option<(AutoMetric, AutoTarget)> {
         let config = &self.algorithms.get(algorithm_index)?.config;
-        Some((config.metric, config.target))
+        let target = match config.target {
+            AutoTarget::Low10Fps => AutoTarget::Low10Fps,
+            AutoTarget::Value(_) => AutoTarget::Value(f32::from_bits(
+                self.targets.get(algorithm_index)?.load(Ordering::Relaxed) as u32,
+            )),
+        };
+        Some((config.metric, target))
     }
 
     /// Evaluates one selected algorithm and applies an eligible target change.
@@ -141,20 +168,27 @@ impl AutoRegulator {
         frame_cap: &FrameCapController,
     ) -> Option<(f32, f32)> {
         let state = self.algorithms.get_mut(algorithm_index)?;
+        let target_version = self.targets.get(algorithm_index)?.load(Ordering::Relaxed);
+        let target = match state.config.target {
+            AutoTarget::Low10Fps => AutoTarget::Low10Fps,
+            AutoTarget::Value(_) => AutoTarget::Value(f32::from_bits(target_version as u32)),
+        };
         let generation = frame_cap.generation();
         if state.last_cap_generation != Some(generation)
             || state.last_hysteresis != Some(hysteresis)
+            || state.last_target_version != Some(target_version)
         {
             state.pending = None;
         }
         state.last_cap_generation = Some(generation);
         state.last_hysteresis = Some(hysteresis);
+        state.last_target_version = Some(target_version);
         let desired_target = (|| {
             if !hysteresis.is_finite() || hysteresis < 0.0 {
                 return None;
             }
             let current_target = frame_cap.target_fps()?;
-            let desired_target = match (state.config.metric, state.config.target) {
+            let desired_target = match (state.config.metric, target) {
                 (AutoMetric::Fps, AutoTarget::Low10Fps) => {
                     let gpu = metrics.gpu_measurement();
                     if gpu.status != TelemetryStatus::Available
@@ -273,11 +307,42 @@ impl AutoRegulator {
         {
             return None;
         }
+        if self.targets[algorithm_index].load(Ordering::Relaxed) != target_version {
+            state.pending = None;
+            return None;
+        }
         let adjustment = frame_cap.adjust_with_bounds(delta, minimum, maximum)?;
         state.last_adjustment = Some(now);
         state.last_cap_generation = Some(frame_cap.generation());
         state.pending = None;
         Some(adjustment)
+    }
+}
+
+/// Changes a numerical target by exactly delta while retaining a change revision.
+pub fn adjust_auto_target(
+    targets: &[AtomicU64],
+    algorithm_index: usize,
+    delta: f32,
+) -> Option<(f32, f32)> {
+    if !delta.is_finite() || delta == 0.0 {
+        return None;
+    }
+    let target = targets.get(algorithm_index)?;
+    let mut current = target.load(Ordering::Relaxed);
+    loop {
+        let old = f32::from_bits(current as u32);
+        let next = old + delta;
+        if !old.is_finite() || old <= 0.0 || !next.is_finite() || next <= 0.0 || next == old {
+            return None;
+        }
+        // The high bits distinguish successive changes, even if the value is restored.
+        let revision = (current >> 32).wrapping_add(1) & u64::from(u32::MAX);
+        let updated = (revision << 32) | u64::from(next.to_bits());
+        match target.compare_exchange_weak(current, updated, Ordering::Relaxed, Ordering::Relaxed) {
+            Ok(_) => return Some((old, next)),
+            Err(actual) => current = actual,
+        }
     }
 }
 
@@ -795,6 +860,88 @@ mod tests {
         assert!(cap.set_target_fps(Some(65.0)));
         assert_eq!(check(&mut regulator, 8, 6.0), None);
         assert_eq!(check(&mut regulator, 12, 6.0), Some((65.0, 70.0)));
+    }
+
+    #[test]
+    fn sensor_target_change_updates_decisions_and_restarts_confirmation() {
+        let now = Instant::now();
+        let mut config = algorithm(
+            AutoMetric::GpuVrmTempC,
+            AutoTarget::Value(100.0),
+            Duration::ZERO,
+        );
+        config.window = Duration::from_secs(4);
+        let mut regulator = AutoRegulator::new(vec![config], 98.0, 90.0, 2.0);
+        let targets = regulator.targets();
+        let cap = FrameCapController::new(Some(60.0));
+        let check = |regulator: &mut AutoRegulator, seconds| {
+            let time = now + Duration::from_secs(seconds);
+            regulator.evaluate(
+                0,
+                &metrics(time, 60.0, 55.0, 50.0, Some(90.0)),
+                time,
+                5.0,
+                &cap,
+            )
+        };
+        assert_eq!(check(&mut regulator, 0), None);
+        assert_eq!(adjust_auto_target(&targets, 0, 5.0), Some((100.0, 105.0)));
+        assert_eq!(
+            regulator.overlay_target(0),
+            Some((AutoMetric::GpuVrmTempC, AutoTarget::Value(105.0)))
+        );
+        assert_eq!(check(&mut regulator, 4), None);
+        assert_eq!(adjust_auto_target(&targets, 0, -5.0), Some((105.0, 100.0)));
+        assert_eq!(adjust_auto_target(&targets, 0, 5.0), Some((100.0, 105.0)));
+        assert_eq!(check(&mut regulator, 8), None);
+        assert_eq!(check(&mut regulator, 12), Some((60.0, 65.0)));
+        assert_eq!(adjust_auto_target(&targets, 0, -1000.0), None);
+        assert_eq!(
+            regulator.overlay_target(0).unwrap().1,
+            AutoTarget::Value(105.0)
+        );
+    }
+
+    #[test]
+    fn numerical_target_rejects_zero_overflow_and_missing_indices() {
+        let targets = [AtomicU64::new(u64::from(5.0_f32.to_bits()))];
+        assert_eq!(adjust_auto_target(&targets, 0, -5.0), None);
+        assert_eq!(adjust_auto_target(&targets, 0, 0.0), None);
+        assert_eq!(adjust_auto_target(&targets, 0, f32::INFINITY), None);
+        assert_eq!(adjust_auto_target(&targets, 1, 5.0), None);
+        let huge = [AtomicU64::new(u64::from(f32::MAX.to_bits()))];
+        assert_eq!(adjust_auto_target(&huge, 0, f32::MAX), None);
+    }
+
+    #[test]
+    fn fan_target_changes_affect_regulation_without_changing_hysteresis() {
+        let now = Instant::now();
+        let mut regulator = AutoRegulator::new(
+            vec![algorithm(
+                AutoMetric::FanRpm,
+                AutoTarget::Value(2000.0),
+                Duration::ZERO,
+            )],
+            98.0,
+            90.0,
+            2.0,
+        );
+        let targets = regulator.targets();
+        let cap = FrameCapController::new(Some(60.0));
+        let snapshot = fan_metrics(now, Some(1960.0));
+        assert_eq!(regulator.evaluate(0, &snapshot, now, 50.0, &cap), None);
+        assert_eq!(
+            adjust_auto_target(&targets, 0, 50.0),
+            Some((2000.0, 2050.0))
+        );
+        assert_eq!(
+            regulator.overlay_target(0),
+            Some((AutoMetric::FanRpm, AutoTarget::Value(2050.0)))
+        );
+        assert_eq!(
+            regulator.evaluate(0, &snapshot, now, 50.0, &cap),
+            Some((60.0, 65.0))
+        );
     }
 
     #[test]

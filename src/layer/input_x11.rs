@@ -1,4 +1,4 @@
-use crate::layer::auto::adjust_hysteresis;
+use crate::layer::auto::{adjust_auto_target, adjust_hysteresis};
 use crate::layer::config::{AutoMetric, Hotkey};
 use crate::layer::diagnostics;
 use crate::layer::limiter::FrameCapController;
@@ -10,7 +10,7 @@ use parking_lot::Mutex;
 use std::ffi::{c_char, c_int, c_long, c_uint, c_ulong};
 use std::mem::MaybeUninit;
 use std::ptr;
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock, Weak};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
@@ -223,6 +223,7 @@ struct HotkeyTarget {
     overlay_renderer: Arc<OverlayRendererState>,
     active_auto_algorithm: Arc<AtomicI32>,
     auto_hysteresis: Arc<Vec<AtomicU32>>,
+    auto_targets: Arc<Vec<AtomicU64>>,
     auto_metrics: Vec<AutoMetric>,
     manual_step_fps: f32,
     overlay_feedback: Arc<OverlayFeedbackState>,
@@ -262,6 +263,7 @@ impl HotkeyWorker {
         overlay_renderer: Arc<OverlayRendererState>,
         active_auto_algorithm: Arc<AtomicI32>,
         auto_hysteresis: Arc<Vec<AtomicU32>>,
+        auto_targets: Arc<Vec<AtomicU64>>,
         auto_metrics: Vec<AutoMetric>,
         manual_step_fps: f32,
         overlay_feedback: Arc<OverlayFeedbackState>,
@@ -276,6 +278,7 @@ impl HotkeyWorker {
             overlay_renderer,
             active_auto_algorithm,
             auto_hysteresis,
+            auto_targets,
             auto_metrics,
             manual_step_fps,
             overlay_feedback,
@@ -601,25 +604,43 @@ fn adjust_target(target: &HotkeyTarget, direction: f32) {
     let active = target.active_auto_algorithm.load(Ordering::Relaxed);
     if active > 0 {
         let index = (active - 1) as usize;
-        if let Some((metric, (old, new))) =
-            target.auto_metrics.get(index).copied().and_then(|metric| {
-                adjust_hysteresis(
-                    &target.auto_hysteresis,
-                    index,
-                    direction * metric.hysteresis_step(),
+        let Some(metric) = target.auto_metrics.get(index).copied() else {
+            diagnostics::error("[CONTROL] active AUTO algorithm has no metric");
+            return;
+        };
+        let change = match metric {
+            AutoMetric::Fps => adjust_hysteresis(
+                &target.auto_hysteresis,
+                index,
+                direction * metric.hysteresis_step(),
+            )
+            .map(|change| {
+                (
+                    change,
+                    OverlayFeedbackEvent::HysteresisChanged,
+                    "hysteresis",
                 )
-                .map(|change| (metric, change))
-            })
-        {
-            target
-                .overlay_feedback
-                .record(OverlayFeedbackEvent::HysteresisChanged);
+            }),
+            AutoMetric::GpuVrmTempC | AutoMetric::FanRpm => {
+                let Some(hysteresis) = target.auto_hysteresis.get(index) else {
+                    diagnostics::error("[CONTROL] active AUTO algorithm has no hysteresis");
+                    return;
+                };
+                let step = f32::from_bits(hysteresis.load(Ordering::Relaxed));
+                adjust_auto_target(&target.auto_targets, index, direction * step)
+                    .map(|change| (change, OverlayFeedbackEvent::TargetChanged, "target"))
+            }
+        };
+        if let Some(((old, new), event, field)) = change {
+            target.overlay_feedback.record(event);
             let verb = if direction > 0.0 { "raised" } else { "lowered" };
             diagnostics::info(format!(
-                "[CONTROL] AUTO hysteresis {verb}: {old:.1} {} -> {new:.1} {}",
+                "[CONTROL] AUTO {field} {verb}: {old:.1} {} -> {new:.1} {}",
                 metric.hysteresis_unit(),
                 metric.hysteresis_unit()
             ));
+        } else if metric != AutoMetric::Fps {
+            diagnostics::warn("[CONTROL] AUTO target unchanged: step is zero or the new target is not a positive finite value");
         }
     } else if let Some((old, new)) = target.controller.adjust(direction * target.manual_step_fps) {
         target
@@ -701,6 +722,7 @@ mod tests {
             overlay_renderer: Arc::new(OverlayRendererState::new(OverlayRenderer::Modern)),
             active_auto_algorithm: Arc::new(AtomicI32::new(0)),
             auto_hysteresis: Arc::new(vec![AtomicU32::new(5.0_f32.to_bits())]),
+            auto_targets: Arc::new(vec![AtomicU64::new(0)]),
             auto_metrics: vec![AutoMetric::Fps],
             manual_step_fps: 5.0,
             overlay_feedback: Arc::new(OverlayFeedbackState::new()),
@@ -742,7 +764,7 @@ mod tests {
     }
 
     #[test]
-    fn auto_hotkeys_use_metric_steps_and_order_without_touching_other_values() {
+    fn auto_hotkeys_adjust_sensor_targets_and_jit_hysteresis_independently() {
         use crate::layer::settings::OverlayRenderer;
 
         let target = HotkeyTarget {
@@ -755,18 +777,27 @@ mod tests {
                 AtomicU32::new(5.0_f32.to_bits()),
                 AtomicU32::new(5.0_f32.to_bits()),
             ]),
+            auto_targets: Arc::new(vec![
+                AtomicU64::new(u64::from(2000.0_f32.to_bits())),
+                AtomicU64::new(0),
+                AtomicU64::new(u64::from(100.0_f32.to_bits())),
+            ]),
             auto_metrics: vec![AutoMetric::FanRpm, AutoMetric::Fps, AutoMetric::GpuVrmTempC],
             manual_step_fps: 5.0,
             overlay_feedback: Arc::new(OverlayFeedbackState::new()),
             hotkeys: [Hotkey::F5, Hotkey::F7, Hotkey::F6, Hotkey::F8],
         };
-        for (index, expected) in [(0, 60.0), (1, 6.0), (2, 6.0)] {
+        for (index, expected) in [(0, 2050.0), (1, 6.0), (2, 105.0)] {
             target
                 .active_auto_algorithm
                 .store(index as i32 + 1, Ordering::Relaxed);
             adjust_target(&target, 1.0);
             assert_eq!(
-                f32::from_bits(target.auto_hysteresis[index].load(Ordering::Relaxed)),
+                if index == 1 {
+                    f32::from_bits(target.auto_hysteresis[index].load(Ordering::Relaxed))
+                } else {
+                    f32::from_bits(target.auto_targets[index].load(Ordering::Relaxed) as u32)
+                },
                 expected
             );
             adjust_target(&target, -1.0);
@@ -783,12 +814,13 @@ mod tests {
             f32::from_bits(target.auto_hysteresis[2].load(Ordering::Relaxed)),
             5.0
         );
-        target.auto_hysteresis[0].store(3.0_f32.to_bits(), Ordering::Relaxed);
-        target.active_auto_algorithm.store(1, Ordering::Relaxed);
-        adjust_target(&target, -1.0);
         assert_eq!(
-            f32::from_bits(target.auto_hysteresis[0].load(Ordering::Relaxed)),
-            0.0
+            f32::from_bits(target.auto_targets[0].load(Ordering::Relaxed) as u32),
+            2000.0
+        );
+        assert_eq!(
+            f32::from_bits(target.auto_targets[2].load(Ordering::Relaxed) as u32),
+            100.0
         );
         assert!(
             target
@@ -796,9 +828,74 @@ mod tests {
                 .current(Instant::now())
                 .hysteresis_changed
         );
+        assert!(
+            target
+                .overlay_feedback
+                .current(Instant::now())
+                .target_changed
+        );
+        target.auto_hysteresis[0].store(0.0_f32.to_bits(), Ordering::Relaxed);
+        target.active_auto_algorithm.store(1, Ordering::Relaxed);
+        adjust_target(&target, -1.0);
+        assert_eq!(
+            f32::from_bits(target.auto_targets[0].load(Ordering::Relaxed) as u32),
+            2000.0
+        );
         target.active_auto_algorithm.store(4, Ordering::Relaxed);
         adjust_target(&target, 1.0);
         assert_eq!(target.controller.target_fps(), Some(60.0));
+    }
+
+    #[test]
+    fn sensor_hotkeys_update_the_regulators_shared_target() {
+        use crate::layer::auto::AutoRegulator;
+        use crate::layer::config::{AutoAlgorithmConfig, AutoTarget};
+        use crate::layer::settings::OverlayRenderer;
+
+        let config = AutoAlgorithmConfig {
+            name: "vrm_temp".to_owned(),
+            metric: AutoMetric::GpuVrmTempC,
+            target: AutoTarget::Value(100.0),
+            hysteresis: 7.5,
+            window: Duration::from_secs(4),
+            increase_step_fps: 5.0,
+            decrease_step_fps: 5.0,
+            min_fps: 1.0,
+            max_fps: 240.0,
+        };
+        let regulator = AutoRegulator::new(vec![config], 98.0, 90.0, 2.0);
+        let target = HotkeyTarget {
+            controller: Arc::new(FrameCapController::new(Some(60.0))),
+            overlay_mode: Arc::new(OverlayModeState::new(2)),
+            overlay_renderer: Arc::new(OverlayRendererState::new(OverlayRenderer::Modern)),
+            active_auto_algorithm: Arc::new(AtomicI32::new(1)),
+            auto_hysteresis: Arc::new(vec![AtomicU32::new(7.5_f32.to_bits())]),
+            auto_targets: regulator.targets(),
+            auto_metrics: vec![AutoMetric::GpuVrmTempC],
+            manual_step_fps: 5.0,
+            overlay_feedback: Arc::new(OverlayFeedbackState::new()),
+            hotkeys: [Hotkey::F5, Hotkey::F7, Hotkey::F6, Hotkey::F8],
+        };
+        dispatch_to_target(&target, Hotkey::F7, HotkeyEvent::Press);
+        assert_eq!(
+            regulator.overlay_target(0),
+            Some((AutoMetric::GpuVrmTempC, AutoTarget::Value(107.5)))
+        );
+        assert!(
+            target
+                .overlay_feedback
+                .current(Instant::now())
+                .target_changed
+        );
+        assert_eq!(
+            f32::from_bits(target.auto_hysteresis[0].load(Ordering::Relaxed)),
+            7.5
+        );
+        dispatch_to_target(&target, Hotkey::F6, HotkeyEvent::Press);
+        assert_eq!(
+            regulator.overlay_target(0),
+            Some((AutoMetric::GpuVrmTempC, AutoTarget::Value(100.0)))
+        );
     }
 
     #[test]
@@ -812,6 +909,7 @@ mod tests {
             overlay_renderer: Arc::new(OverlayRendererState::new(OverlayRenderer::Modern)),
             active_auto_algorithm: Arc::new(AtomicI32::new(0)),
             auto_hysteresis: Arc::new(Vec::new()),
+            auto_targets: Arc::new(Vec::new()),
             auto_metrics: Vec::new(),
             manual_step_fps: 5.0,
             overlay_feedback: Arc::new(OverlayFeedbackState::new()),

@@ -8,8 +8,8 @@ gpu_poll_rate_ms = 200  # GPU telemetry polling and AUTO evaluation interval; al
 [key-bindings]
 input_enabled = true    # Enable global function-key shortcuts. Built-in default: true; shortcuts require X11/XWayland; invalid TOML types reject the file.
 hotkey_auto = "F5"      # Cycle manual -> automatic -> off. Built-in default: F5; valid keys: F5-F8; invalid or duplicate keys disable all shortcuts.
-hotkey_down = "F6"     # Decrease the manual cap or AUTO hysteresis. Built-in default: F6; valid keys: F5-F8; invalid or duplicate keys disable all shortcuts.
-hotkey_up = "F7"       # Increase the manual cap or AUTO hysteresis. Built-in default: F7; valid keys: F5-F8; invalid or duplicate keys disable all shortcuts.
+hotkey_down = "F6"     # Decrease manual cap, JIT hysteresis, or VRM/FAN target by hysteresis. Default: F6; valid: F5-F8.
+hotkey_up = "F7"       # Increase manual cap, JIT hysteresis, or VRM/FAN target by hysteresis. Default: F7; valid: F5-F8.
 hotkey_toggle = "F8"   # Short press cycles full -> FPS only -> off; hold for 1 second to switch renderer before release. Built-in default: F8; valid keys: F5-F8; invalid or duplicate keys disable all shortcuts.
 
 [sensors]

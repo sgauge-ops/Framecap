@@ -25,8 +25,13 @@ A valid positive `[manual-mode].startup_fps` starts in manual mode; zero starts 
 cycles manual through the configured algorithms and OFF, then restores the
 last cap in manual mode. By default the order is JIT, VRM, FAN. The overlay
 shows the name `AUTO (JIT)`, `AUTO (VRM)`, or `AUTO (FAN)` independently of
-order. In automatic mode F6/F7 decrease/increase active hysteresis by
-1 FPS, 1 °C or 10 RPM, respectively; in manual mode they change the cap by
+order. In JIT, F6/F7 decrease/increase hysteresis by 1 FPS. In VRM and FAN,
+they decrease/increase the active numerical target by that algorithm's
+configured hysteresis (5 °C and 50 RPM by default), without changing the
+hysteresis itself. A zero hysteresis gives a zero step; changes that would
+make the target non-positive or non-finite are rejected. Target changes are
+temporary, independent per algorithm, and reset when the application restarts;
+they do not rewrite the configuration. In manual mode F6/F7 change the cap by
 `[manual-mode].step_fps`. They do not change a parameter in OFF. Global
 shortcuts require X11/XWayland.
 
@@ -60,9 +65,9 @@ scheduled evaluations for one full `auto_window_ms` before an adjustment.
 Neutral, invalid or opposite decisions interrupt confirmation. After an
 effective adjustment, a new confirmation starts; any two effective adjustments
 are separated by at least one window. Switching modes, a change to the cap or
-hysteresis, a change of evaluated swapchain, and an evaluation gap longer than
-twice the polling interval or two seconds (whichever is greater) also reset
-confirmation. Persistence is checked at evaluation times; changes between
+hysteresis or numerical target, a change of evaluated swapchain, and an
+evaluation gap longer than twice the polling interval or two seconds
+(whichever is greater) also reset confirmation. Persistence is checked at evaluation times; changes between
 evaluations cannot be observed.
 An initial full collection window followed by a full confirmation means the
 first adjustment with initially empty histories can take at least two windows

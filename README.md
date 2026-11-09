@@ -11,8 +11,8 @@ Framecap offers the following modes, that can be cycled-through via [F5] (by def
 | OFF | Overlay only, no frame capping |
 | MANUAL | User defined frame capping, use [F6] and [F7] respectively decrease and increase frame cap |
 | AUTO (JIT) | Adjusts the cap using 10%-low FPS, GPU load and jitter; [F6] and [F7] adjust the hysteresis in FPS |
-| AUTO (VRM) | Adjusts the cap around a VRM temperature target; [F6] and [F7] adjust the hysteresis in °C |
-| AUTO (FAN) | Adjusts the cap around a fan-speed target; [F6] and [F7] adjust the hysteresis in RPM |
+| AUTO (VRM) | Adjusts the cap around a VRM temperature target; [F6] and [F7] adjust the target by the hysteresis in °C |
+| AUTO (FAN) | Adjusts the cap around a fan-speed target; [F6] and [F7] adjust the target by the hysteresis in RPM |
 
 The automatic algorithms use a per-algorithm rolling measurement window and
 require a persistent adjustment direction before changing the cap. The default
