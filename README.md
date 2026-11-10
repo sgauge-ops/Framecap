@@ -6,28 +6,21 @@ Framecap has been developped and validated with a bc250 mining board running Cac
 Any other configuration is unknown at the moment.
 
 Framecap offers the following modes, that can be cycled-through via [F5] (by default):
-| mode | description |
-| --- | --- |
-| OFF | Overlay only, no frame capping |
-| MANUAL | User defined frame capping, use [F6] and [F7] respectively decrease and increase frame cap |
-| AUTO (JIT) | Adjusts the cap using 10%-low FPS, GPU load and jitter; [F6] and [F7] adjust the hysteresis in FPS |
-| AUTO (VRM) | Adjusts the cap around a VRM temperature target; [F6] and [F7] adjust the target by the hysteresis in °C |
-| AUTO (FAN) | Adjusts the cap around a fan-speed target; [F6] and [F7] adjust the target by the hysteresis in RPM |
+| mode | description | default (*) |
+| --- | --- | --- |
+| OFF | Overlay only, no frame capping | -- |
+| MANUAL | User defined frame capping, use [F6] and [F7] respectively decrease and increase frame cap | 90 fps target |
+| AUTO (JIT) | Adjusts the cap using 10%-low FPS, GPU load and jitter; [F6] and [F7] adjust the hysteresis in FPS | 5 fps hysteresis |
+| AUTO (VRM) | Adjusts the cap around a VRM temperature target; [F6] and [F7] adjust the target by the hysteresis in °C | 5°C hysteresis |
+| AUTO (FAN) | Adjusts the cap around a fan-speed target; [F6] and [F7] adjust the target by the hysteresis in RPM | 50 rpm hysteresis |
 
-The automatic algorithms use a per-algorithm rolling measurement window and
-require a persistent adjustment direction before changing the cap. The default
-window is 4 seconds; hysteresis defaults to 5 FPS, 5 °C and 50 RPM for JIT,
-VRM and FAN, respectively. See [automatic regulation](documentation/AUTO-MODE.md)
-for the rules and limitations. The algorithms are still experimental and being
-fine-tuned. Your feedback is welcome.
+(*) Default settings can be configured in `framecap.toml`.
+
+See [automatic regulation](documentation/AUTO-MODE.md) for the rules and limitations. The algorithms are still experimental and being fine-tuned. Your feedback is welcome.
 
 A short [F8] press cycles the overlay through full, FPS only, and off.
 
 Holding [F8] for one second switches between the `modern` and `ascii` renderers. Background logic remains active when the overlay is hidden.
-
-Framecap's behavior is largely configurable in `framecap.toml`. Existing
-configurations with older AUTO keys must be updated; see
-[configuration migration](documentation/CONFIGURATION.md#automatic-mode-migration).
 
 # Short installation guide
 
@@ -66,7 +59,7 @@ VK_LAYER_PATH="$HOME/bc250-framecap/layer" VK_INSTANCE_LAYERS=VK_LAYER_FRAMECAP_
 
 Framecap should show-up :
 
-![vkcube](documentation/vkcube%20overlay.png)
+![vkcube](documentation/screenshots/vkcube%20overlay.png)
 
 ## Activate for a Steam game
 
