@@ -48,24 +48,32 @@ make it globally available, and review its machine-specific sensor overrides:
 
 ```sh
 mkdir -p "$HOME/.config" ;
-cp -n "$HOME/bc250-framecap/framecap.toml.example" "$HOME/.config/framecap.toml"
+cp -n "$HOME/bc250-framecap/framecap.toml.example" "$HOME/.config/framecap.toml" ;
 ln -sT "$HOME/.config/framecap.toml" "$HOME/bc250-framecap/framecap.toml"
 ```
 
 Edit `$HOME/bc250-framecap/framecap.toml` and adjust your preferences.
 
-## Test with vkcube
+## Test with vkcube & furmark
 
 From your home directory, with a graphical session and `vkcube` available:
 
 ```sh
-cd ~/ ;
-VK_LAYER_PATH="$HOME/bc250-framecap/layer" VK_INSTANCE_LAYERS=VK_LAYER_BC250_framecap vkcube --c 300
+cd $HOME/bc250-framecap ;
+env VK_LAYER_PATH="$HOME/bc250-framecap/layer" VK_INSTANCE_LAYERS=VK_LAYER_BC250_framecap \
+    vkcube --c 3000
 ```
 
 Framecap should show-up :
 
 ![vkcube](documentation/screenshots/vkcube%20overlay.png)
+
+You can also use FurMark to test VRM and FAN regulation logic:
+```sh
+cd $HOME/bc250-framecap ;
+env VK_LAYER_PATH="$PWD/layer" VK_INSTANCE_LAYERS=VK_LAYER_BC250_framecap \
+    furmark --demo furmark-vk
+```
 
 ## Activate for a Steam game
 

@@ -8,6 +8,7 @@ changes, not necessarily when development originally took place.
 
 | Date | Changes |
 | --- | --- |
+| 2026-11-11 | Included executable `test-vkcube.sh` and `test-furmark.sh` scripts in the Linux release archive. |
 | 2026-11-11 | Renamed `VK_LAYER_FRAMECAP_observability` to `VK_LAYER_BC250_framecap`; update `VK_INSTANCE_LAYERS` in launch options and scripts. |
 | 2026-11-11 | Added a GitHub Actions release workflow that packages a Linux x86_64 binary and Vulkan manifest as a release asset. |
 | 2026-11-11 | Added GDDR6 hotspot, GTT used/total and system RAM used to the full modern overlay. Grouped GDDR6 with PPT and FAN, placed RAM under FAN, and increased the dashboard height to 230 px at 1×. Harmonized hardware label sizes, aligned labels and values on a common baseline, right-aligned values by unit and reduced spacing between labels and values. |

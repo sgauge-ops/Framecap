@@ -40,7 +40,8 @@ release library in `lib/`. Extraction updates those files without replacing a
 local `framecap.toml`. It also includes `framecap.toml.example`; copy that file
 to `framecap.toml` if you want to configure the layer, then review its
 machine-specific sensor selectors. If no configuration exists, Framecap uses
-its built-in defaults.
+its built-in defaults. The archive also includes executable `test-vkcube.sh`
+and `test-furmark.sh` scripts.
 
 ## Build from source
 
@@ -95,12 +96,24 @@ that game, not globally. Remove the launch options to disable it.
 
 ## Test and troubleshoot
 
-From the installed source directory, with a graphical session and `vkcube`:
+From the installation directory, with a graphical session and `vkcube`:
 
 ```sh
 cd "$HOME/bc250-framecap"
 VK_LAYER_PATH="$PWD/layer" VK_INSTANCE_LAYERS=VK_LAYER_BC250_framecap vkcube --c 300
 ```
+
+The packaged test scripts can also be run from this directory:
+
+```sh
+./test-vkcube.sh
+./test-furmark.sh
+```
+
+They require `vkcube` and `furmark`, respectively, to be installed and on
+`PATH`. The `vkcube` script requests the Wayland backend and immediate present
+mode; both must be available. The scripts use the current working directory to
+locate `layer/`, so run them from the installation directory.
 
 On systems with multiple display backends, `vkcube --wsi wayland` or
 `vkcube --wsi xcb` can select an available backend. Compare with a run without

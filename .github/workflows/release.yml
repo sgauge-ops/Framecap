@@ -43,8 +43,10 @@ jobs:
           '
           install -m 644 framecap.toml dist/framecap.toml.example
           install -m 644 README.md documentation/INSTALL.md dist/
+          install -m 755 test-vkcube.sh test-furmark.sh dist/
           tar -C dist -czf dist/framecap-linux-x86_64.tar.gz \
-            layer lib framecap.toml.example README.md INSTALL.md
+            layer lib framecap.toml.example README.md INSTALL.md \
+            test-vkcube.sh test-furmark.sh
       - name: Upload to GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
