@@ -1,19 +1,5 @@
 # TODO
 
-## Before public release
-
-- [ ] Choose a project license, add its text, and set the Cargo license field.
-- [ ] Review the complete Git history and tracked files for secrets, personal
-      paths, private information, and third-party material before publication.
-      Removing data from the latest tree alone does not remove it from history.
-- [ ] Confirm the public repository, visibility, and release process with the
-      owner before publishing. Audit dependency licenses.
-- [ ] Define a security reporting channel and add a security policy.
-- [ ] Design release artifacts containing a matching Vulkan manifest and
-      library; the development manifest currently points to `target/debug`.
-- [ ] Review sensor path overrides and locally tuned values in `framecap.toml`
-      before distributing them as general-purpose defaults.
-
 ## Compatibility and measurements
 
 - [ ] Test more Vulkan games, GPUs, drivers, resolutions, and presentation
@@ -30,12 +16,20 @@
       resolutions, backgrounds, and varying loads.
 - [ ] Investigate an optional native Wayland global-shortcut backend.
 
-Record tested and untested environments and results using
-[the validation plan](documentation/VALIDATION.md).
+## Fine-tuning
+
+- [ ] Fine-tune `auto_window_ms`, `hysteresis` and adjustment steps, for the [auto-mode.algorithms.gpu_threshold] algorithm, 
+- [X] Fine-tune `auto_window_ms` and `hysteresis` for the [auto-mode.algorithms.vrm_temp] algorithm
+- [X] Fine-tune `auto_window_ms` and `hysteresis` for the [auto-mode.algorithms.fan_rpm] algorithm
 
 ## Maintenance
 
+- [ ] Launch a complete code-review, for clean-up, improvements and documentation
 - [ ] Document non-obvious synchronization, resource lifetime, and shared
       state invariants in code where needed.
 - [ ] Expand automated coverage for concurrency, error handling, and
       multi-swapchain scenarios where it is currently missing.
+
+## GUI
+
+- [ ] Implement a simple configuration GUI

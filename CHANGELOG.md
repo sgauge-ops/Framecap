@@ -8,6 +8,7 @@ changes, not necessarily when development originally took place.
 
 | Date | Changes |
 | --- | --- |
+| 2026-11-11 | Removed the standalone BC-250 memory probe; GDDR6 hotspot telemetry remains available in the overlay. |
 | 2026-11-11 | Included executable `test-vkcube.sh` and `test-furmark.sh` scripts in the Linux release archive. |
 | 2026-11-11 | Renamed `VK_LAYER_FRAMECAP_observability` to `VK_LAYER_BC250_framecap`; update `VK_INSTANCE_LAYERS` in launch options and scripts. |
 | 2026-11-11 | Added a GitHub Actions release workflow that packages a Linux x86_64 binary and Vulkan manifest as a release asset. |

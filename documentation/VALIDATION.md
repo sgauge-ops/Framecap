@@ -1,39 +1,38 @@
 # Validation and known limitations
 
-## Known observations
+## Tests performed
 
-- Unit and integration tests exist for metrics, telemetry, controls, automatic
-  regulation, and an optional `vkcube` comparison. A skipped graphics test is
-  not a successful runtime validation.
-- A prior local `vkcube` run over 1200 frames reported approximately 8.85 s
-  without the layer, with the overlay visible, and with it hidden; the 60 FPS
-  limiter run took approximately 20 s. These are limited observations, not a
-  general overhead guarantee.
-- Manual overlay visibility and F9/F10/F11 controls were exercised in a test
-  environment. Broader visual and compatibility testing remains open.
-- Wreckfest 2 reached a presentation screen with the overlay but later crashed
-  when 3D began. A reported dump pointed at an OptiScaler XeFG/MFG/XeSS DLL;
-  a run without OptiScaler worked. Attribution and reproducibility remain
-  unresolved.
-- GPU load telemetry currently supports AMD. Global shortcuts need
-  X11/XWayland; distinguish native Wayland from XWayland in results.
+These are observations from specific runs, not a compatibility guarantee.
+The results below do not establish coverage for all devices or drivers.
+
+| Test | Result and scope |
+| --- | --- |
+| Rust automated tests | On 2026-11-11, after removal of the standalone probe, `cargo test --locked` reported 145 passing tests and no failures: 137 library tests, seven metrics/telemetry integration tests, and one `vkcube` integration test. These cover metrics, configuration, controls, AUTO regulation, telemetry, rendering helpers, and other logic. The test output reports the overall graphics test as passing, but does not confirm whether its optional immediate-mode timing check ran. |
+| Formatting and build | On 2026-11-11, `cargo fmt --check` and `cargo build --locked --release` succeeded locally. |
+| Vulkan presentation | A previous local `vkcube` run of 1200 frames took approximately 8.85 s without the layer, with the overlay visible, and with it hidden; with a 60 FPS cap it took approximately 20 s. The environment and measurement detail are insufficient to generalize these numbers. |
+| Manual controls | Overlay visibility and F9/F10/F11 controls were exercised in an earlier test environment. These are historical key bindings, not the current defaults (F5-F8); broader visual and shortcut validation remains open. |
+| Release package | On 2026-11-11, the workflow's packaging step was run locally. The extracted `test-vkcube.sh` and `test-furmark.sh` had mode `755` and were executed directly against simulated commands to verify their environment and arguments. This did not run the graphical applications or validate GitHub Actions publication. |
+| Wreckfest 2 | The overlay appeared on a presentation screen, but the game later crashed when 3D began. A reported dump pointed at an OptiScaler XeFG/MFG/XeSS DLL; a run without OptiScaler worked. Attribution and reproducibility remain unresolved. |
+
+The `vkcube` integration test can return successfully without exercising
+graphics when prerequisites are missing; inspect its output and environment
+before treating a passing result as runtime validation. Similarly, simulated
+commands and offline sensor tests do not validate real hardware.
+
+GPU load telemetry currently supports AMD. Global shortcuts need X11/XWayland;
+distinguish native Wayland from XWayland in results. Further tests are needed
+for different hardware, drivers, games, display backends, and live BC-250
+memory readings.
 
 ## Repeatable test plan
 
-### BC-250 GDDR6 probe
-
-The optional `bc250-memory-probe` binary reports the DMI BIOS version and one
-GDDR6 hotspot sample. Build with `cargo build --locked --bin bc250-memory-probe`
-and run `target/debug/bc250-memory-probe` as the desktop user. `--bios-only`
-checks the BIOS without accessing the SMU or requesting authorization.
-
-The probe reads the `VRAM Hotspot` sensor exposed by the loaded
+Framecap reads the `VRAM Hotspot` sensor exposed by the loaded
 `bc250_memory` hwmon driver. It does not invoke Control Center, `pkexec` or
 load the module. The driver accesses the SMU and may install a temporary
 firmware patch; follow its firmware, debug-access and concurrency warnings.
 A saturated reading is shown as `>=120 °C`, not as an exact temperature.
 Missing, ambiguous, malformed and out-of-range readings are errors. A
-successful offline test or BIOS-only invocation is not a hardware validation.
+successful offline test is not a hardware validation.
 
 For the full ASCII overlay, test `[framecap].memory_poll_rate_ms` with `0`,
 `1999`, `2000`, and `5000`. Verify that only the first two disable GDDR6,

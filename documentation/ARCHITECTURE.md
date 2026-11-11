@@ -62,13 +62,12 @@ the complete Rust source, integration-test, and runtime-resource layout.
 | [`src/layer/config.rs`](../src/layer/config.rs) | Loads configuration and converts validated settings into runtime configuration, including defaults and diagnostics for invalid input. |
 | [`src/layer/settings.rs`](../src/layer/settings.rs) | Configuration data structures and defaults for polling, hotkeys, overlay, sensors, manual mode, and AUTO algorithms. |
 | [`src/layer/telemetry.rs`](../src/layer/telemetry.rs) | GPU telemetry providers, CPU/GPU/hwmon readers, sensor selection, expiration, and time-window smoothing. |
-| [`src/layer/memory_temperature.rs`](../src/layer/memory_temperature.rs) | Reads the BIOS version and BC-250 GDDR6 hotspot from sysfs/hwmon, including saturated readings. |
+| [`src/layer/memory_temperature.rs`](../src/layer/memory_temperature.rs) | Reads the BC-250 GDDR6 hotspot from sysfs/hwmon, including saturated readings. |
 | [`src/layer/input_x11.rs`](../src/layer/input_x11.rs) | Process-wide X11/XWayland shortcut listener and dispatch to registered devices. |
 | [`src/layer/renderer.rs`](../src/layer/renderer.rs) | Vulkan swapchain renderer, ASCII and modern overlay layouts, display modes, and transient input feedback. |
 | [`src/layer/dashboard.rs`](../src/layer/dashboard.rs) | Modern dashboard geometry, text glyph rasterization, and rectangle batching; an internal module used by `renderer.rs`. |
 | [`src/layer/overlay.rs`](../src/layer/overlay.rs) | Simple text/console rendering of a metrics snapshot, separate from the Vulkan swapchain overlay. |
 | [`src/layer/diagnostics.rs`](../src/layer/diagnostics.rs) | Configurable, synchronized diagnostic logging and process/environment context. |
-| [`src/bin/bc250-memory-probe.rs`](../src/bin/bc250-memory-probe.rs) | Standalone command-line probe for BIOS and GDDR6 hotspot readings; does not apply the SMU patch. |
 
 ### Vulkan and rendering resources
 
@@ -90,8 +89,8 @@ the complete Rust source, integration-test, and runtime-resource layout.
 | [`tests/telemetry_test.rs`](../tests/telemetry_test.rs) | Checks mock telemetry, unsupported GPU status, and timestamp expiry behavior. |
 | [`tests/vulkan_layer_test.rs`](../tests/vulkan_layer_test.rs) | Exercises `vkcube` with and without the layer, overlay modes/renderers, diagnostics, and frame-cap timing when graphical prerequisites are available. |
 
-[`Cargo.toml`](../Cargo.toml) defines the library, `cdylib`, binary target, and
-Rust dependencies. The release packaging workflow is described in
+[`Cargo.toml`](../Cargo.toml) defines the library, `cdylib`, and Rust
+dependencies. The release packaging workflow is described in
 [`../.github/workflows/release.yml`](../.github/workflows/release.yml).
 
 See [validation](VALIDATION.md) for what has and has not been tested; this

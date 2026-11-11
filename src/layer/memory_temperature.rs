@@ -2,23 +2,12 @@ use anyhow::{bail, Context, Result};
 use std::fs;
 use std::path::Path;
 
-const BIOS_PATH: &str = "/sys/class/dmi/id/bios_version";
 const HWMON_ROOT: &str = "/sys/class/hwmon";
 
 #[derive(Debug, PartialEq)]
 pub struct Hotspot {
     pub temperature_c: i32,
     pub saturated: bool,
-}
-
-pub fn read_bios() -> Result<String> {
-    let version = fs::read_to_string(BIOS_PATH)
-        .with_context(|| format!("cannot read BIOS version from {BIOS_PATH}"))?;
-    let version = version.trim();
-    if version.is_empty() {
-        bail!("BIOS version is empty in {BIOS_PATH}");
-    }
-    Ok(version.to_owned())
 }
 
 pub fn read_hotspot() -> Result<Hotspot> {
