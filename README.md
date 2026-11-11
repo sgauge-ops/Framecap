@@ -27,12 +27,12 @@ Holding [F8] for one second switches between the `modern` and `ascii` renderers.
 ## Install the Linux x86_64 binary
 
 Download and extract the archive attached to the
-[latest release](https://github.com/sgauge-ops/bc250-framecap/releases/latest):
+[latest release](https://github.com/sgauge-ops/bc250-bc250-framecap/releases/latest):
 
 ```sh
-mkdir -p "$HOME/FrameCap"
-curl -fL https://github.com/sgauge-ops/bc250-framecap/releases/latest/download/framecap-linux-x86_64.tar.gz \
-  | tar -xz -C "$HOME/FrameCap"
+mkdir -p "$HOME/bc250-framecap"
+curl -fL https://github.com/sgauge-ops/bc250-bc250-framecap/releases/latest/download/framecap-linux-x86_64.tar.gz \
+  | tar -xz -C "$HOME/bc250-framecap"
 ```
 
 The archive contains the Vulkan layer manifest, release library, and an example
@@ -47,16 +47,16 @@ To start with the example configuration, copy it once and review its
 machine-specific sensor overrides:
 
 ```sh
-cp -n "$HOME/FrameCap/framecap.toml.example" "$HOME/FrameCap/framecap.toml"
+cp -n "$HOME/bc250-framecap/framecap.toml.example" "$HOME/bc250-framecap/framecap.toml"
 ```
 
-Edit `$HOME/FrameCap/framecap.toml` for your machine. To make this
+Edit `$HOME/bc250-framecap/framecap.toml` for your machine. To make this
 configuration available to games launched from other directories, create a
 symbolic link in the configuration directory searched by Framecap:
 
 ```sh
 mkdir -p "$HOME/.config" ;
-ln -sT "$HOME/FrameCap/framecap.toml" "$HOME/.config/framecap.toml"
+ln -sT "$HOME/bc250-framecap/framecap.toml" "$HOME/.config/framecap.toml"
 ```
 
 ## Test with vkcube
@@ -65,7 +65,7 @@ From your home directory, with a graphical session and `vkcube` available:
 
 ```sh
 cd ~/ ;
-VK_LAYER_PATH="$HOME/FrameCap/layer" VK_INSTANCE_LAYERS=VK_LAYER_FRAMECAP_observability vkcube --c 300
+VK_LAYER_PATH="$HOME/bc250-framecap/layer" VK_INSTANCE_LAYERS=VK_LAYER_FRAMECAP_observability vkcube --c 300
 ```
 
 Framecap should show-up :
@@ -77,7 +77,7 @@ Framecap should show-up :
 Under **Properties > General > Launch Options**, add:
 
 ```sh
-VK_LAYER_PATH="$HOME/FrameCap/layer" VK_INSTANCE_LAYERS=VK_LAYER_FRAMECAP_observability %command%
+VK_LAYER_PATH="$HOME/bc250-framecap/layer" VK_INSTANCE_LAYERS=VK_LAYER_FRAMECAP_observability %command%
 ```
 
 Steam replaces `%command%` with the game command. This activates the layer for
@@ -86,8 +86,8 @@ that game, not globally. Remove the launch options to disable it.
 ## Update
 
 ```sh
-curl -fL https://github.com/sgauge-ops/bc250-framecap/releases/latest/download/framecap-linux-x86_64.tar.gz \
-  | tar -xz -C "$HOME/FrameCap"
+curl -fL https://github.com/sgauge-ops/bc250-bc250-framecap/releases/latest/download/framecap-linux-x86_64.tar.gz \
+  | tar -xz -C "$HOME/bc250-framecap"
 ```
 
 Extraction updates the library and manifest without replacing
@@ -103,20 +103,20 @@ packages listed in the [installation guide](documentation/INSTALL.md).
 ## Clone and build
 
 ```sh
-git clone https://github.com/sgauge-ops/bc250-framecap.git "$HOME/FrameCap-src"
-cd "$HOME/FrameCap-src"
+git clone https://github.com/sgauge-ops/bc250-framecap.git "$HOME/bc250-framecap-src"
+cd "$HOME/bc250-framecap-src"
 cargo build --locked
 ```
 
 The source checkout includes a development manifest that points to
 `target/debug/libframecap.so`. Activate this build with
-`VK_LAYER_PATH="$HOME/FrameCap-src/layer"`; review the machine-specific sensor
+`VK_LAYER_PATH="$HOME/bc250-framecap-src/layer"`; review the machine-specific sensor
 overrides in its `framecap.toml` before use.
 
 ## Update and rebuild
 
 ```sh
-cd "$HOME/FrameCap-src"
+cd "$HOME/bc250-framecap-src"
 git pull --ff-only
 cargo build --locked
 ```
