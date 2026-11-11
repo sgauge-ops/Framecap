@@ -41,6 +41,13 @@ built-in defaults if no configuration file exists. This binary targets 64-bit
 x86 Linux with glibc 2.35 or newer. Other architectures and native Wayland
 shortcuts are not supported by this binary.
 
+**Very important notice:** [bc250 kernel](https://github.com/MastaG/linux-cachyos-bc250) enables VRM and GDDR6 temperature monitoring,  standard CachyOS kernel is not capable of this. Moreover, GDDR6 temperature polling must explicitely be enabled :
+
+```sh
+printf '%s\n' bc250_memory | sudo tee /etc/modules-load.d/bc250-memory.conf >/dev/null ;
+sudo reboot
+```
+
 ## Configure
 
 To start with the example configuration, copy it once to `~/.config/` directory to
