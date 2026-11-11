@@ -30,20 +30,21 @@ jobs:
       - name: Package
         run: |
           set -euo pipefail
-          mkdir -p dist/framecap/lib dist/framecap/layer
-          install -m 755 target/release/libframecap.so dist/framecap/lib/
+          mkdir -p dist/lib dist/layer
+          install -m 755 target/release/libframecap.so dist/lib/
           python3 -c '
           import json
           from pathlib import Path
           manifest = json.loads(Path("layer/VkLayer_FRAMECAP_observability.json").read_text())
           manifest["layer"]["library_path"] = "../lib/libframecap.so"
-          Path("dist/framecap/layer/VkLayer_FRAMECAP_observability.json").write_text(
+          Path("dist/layer/VkLayer_FRAMECAP_observability.json").write_text(
               json.dumps(manifest, indent=2) + "\n"
           )
           '
-          install -m 644 framecap.toml dist/framecap/framecap.toml.example
-          install -m 644 README.md documentation/INSTALL.md dist/framecap/
-          tar -C dist -czf dist/framecap-linux-x86_64.tar.gz framecap
+          install -m 644 framecap.toml dist/framecap.toml.example
+          install -m 644 README.md documentation/INSTALL.md dist/
+          tar -C dist -czf dist/framecap-linux-x86_64.tar.gz \
+            layer lib framecap.toml.example README.md INSTALL.md
       - name: Upload to GitHub release
         env:
           GH_TOKEN: ${{ github.token }}

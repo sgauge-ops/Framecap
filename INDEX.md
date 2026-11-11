@@ -24,7 +24,6 @@
 ## Project status
 
 - [Changelog](CHANGELOG.md): user-facing changes, including unreleased work.
-- [TODO](TODO.md): outstanding validation, development, and publication work.
 
 Specifications describe the intended behavior; verify implementation and tests
 before assuming an unverified scenario is supported. When behavior changes,

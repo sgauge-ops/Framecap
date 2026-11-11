@@ -30,8 +30,8 @@ Download and extract the archive attached to the
 [latest release](https://github.com/sgauge-ops/bc250-bc250-framecap/releases/latest):
 
 ```sh
-mkdir -p "$HOME/bc250-framecap"
-curl -fL https://github.com/sgauge-ops/bc250-bc250-framecap/releases/latest/download/framecap-linux-x86_64.tar.gz \
+mkdir -p "$HOME/bc250-framecap" ;
+curl -fL https://github.com/sgauge-ops/bc250-framecap/releases/latest/download/framecap-linux-x86_64.tar.gz \
   | tar -xz -C "$HOME/bc250-framecap"
 ```
 
@@ -43,21 +43,16 @@ shortcuts are not supported by this binary.
 
 ## Configure
 
-To start with the example configuration, copy it once and review its
-machine-specific sensor overrides:
-
-```sh
-cp -n "$HOME/bc250-framecap/framecap.toml.example" "$HOME/bc250-framecap/framecap.toml"
-```
-
-Edit `$HOME/bc250-framecap/framecap.toml` for your machine. To make this
-configuration available to games launched from other directories, create a
-symbolic link in the configuration directory searched by Framecap:
+To start with the example configuration, copy it once to `~/.config/` directory to
+make it globally available, and review its machine-specific sensor overrides:
 
 ```sh
 mkdir -p "$HOME/.config" ;
-ln -sT "$HOME/bc250-framecap/framecap.toml" "$HOME/.config/framecap.toml"
+cp -n "$HOME/bc250-framecap/framecap.toml.example" "$HOME/.config/framecap.toml"
+ln -sT "$HOME/.config/framecap.toml" "$HOME/bc250-framecap/framecap.toml"
 ```
+
+Edit `$HOME/bc250-framecap/framecap.toml` and adjust your preferences.
 
 ## Test with vkcube
 
