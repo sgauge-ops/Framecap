@@ -7,6 +7,7 @@ to launch. The project is experimental. The default installation directory is
 ## Requirements
 
 - 64-bit Linux, a graphical session, a working Vulkan loader, and a Vulkan driver.
+- [bc250 kernel](https://github.com/MastaG/linux-cachyos-bc250) to enable VRM and GDDR6 temp monitoring, with [memory sensors enabled at boot](https://github.com/MastaG/linux-cachyos-bc250#2-enable-the-bc-250-fansensor-driver-at-boot)
 - `curl` and `tar` to install a release binary, or Rust and Cargo to build from
   source; see [rustup](https://rustup.rs/) if needed.
 - `git` to clone the sources; `vkcube` and `timeout` for the optional test.
@@ -37,11 +38,14 @@ curl -fL https://github.com/sgauge-ops/bc250-framecap/releases/latest/download/f
 
 The archive contains `layer/` and `lib/`. Its Vulkan manifest points to the
 release library in `lib/`. Extraction updates those files without replacing a
-local `framecap.toml`. It also includes `framecap.toml.example`; copy that file
-to `framecap.toml` if you want to configure the layer, then review its
+local `framecap.toml`.
+
+It also includes `framecap.toml.example`; copy that file
+to `~/.config/framecap.toml` if you want to configure the layer, then review its
 machine-specific sensor selectors. If no configuration exists, Framecap uses
-its built-in defaults. The archive also includes executable `test-vkcube.sh`
-and `test-furmark.sh` scripts.
+its built-in defaults.
+
+The archive also includes executable `test-vkcube.sh` and `test-furmark.sh` scripts.
 
 ## Build from source
 
@@ -99,7 +103,7 @@ that game, not globally. Remove the launch options to disable it.
 From the installation directory, with a graphical session and `vkcube`:
 
 ```sh
-cd "$HOME/bc250-framecap"
+cd "$HOME/bc250-framecap" ;
 VK_LAYER_PATH="$PWD/layer" VK_INSTANCE_LAYERS=VK_LAYER_BC250_framecap vkcube --c 300
 ```
 

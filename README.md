@@ -118,10 +118,8 @@ cd "$HOME/bc250-framecap-src"
 cargo build --locked
 ```
 
-The source checkout includes a development manifest that points to
-`target/debug/libframecap.so`. Activate this build with
-`VK_LAYER_PATH="$HOME/bc250-framecap-src/layer"`; review the machine-specific sensor
-overrides in its `framecap.toml` before use.
+The source checkout includes a development manifest that points to `target/debug/libframecap.so`. Activate this build with
+`VK_LAYER_PATH="$HOME/bc250-framecap-src/layer"`; review the machine-specific sensor overrides in its `framecap.toml` before use.
 
 ## Update and rebuild
 
