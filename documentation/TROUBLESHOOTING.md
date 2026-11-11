@@ -12,7 +12,7 @@ Keep the game, driver, and launch settings the same when comparing runs.
    following, adjusted if Framecap was installed elsewhere:
 
    ```sh
-   VK_LAYER_PATH="$HOME/FrameCap/layer" VK_INSTANCE_LAYERS=VK_LAYER_FRAMECAP_observability %command%
+   VK_LAYER_PATH="$HOME/bc250-framecap/layer" VK_INSTANCE_LAYERS=VK_LAYER_BC250_framecap %command%
    ```
 
    Keep any other required launch options and only one `%command%`. For
@@ -21,19 +21,19 @@ Keep the game, driver, and launch settings the same when comparing runs.
 3. Check that the manifest and library exist:
 
    ```sh
-   ls -l "$HOME/FrameCap/layer/VkLayer_FRAMECAP_observability.json" \
-     "$HOME/FrameCap/target/debug/libframecap.so"
+   ls -l "$HOME/bc250-framecap/layer/VkLayer_BC250_framecap.json" \
+     "$HOME/bc250-framecap/target/debug/libframecap.so"
    ```
 
-   If the library is missing, run `cd "$HOME/FrameCap" && cargo build
+   If the library is missing, run `cd "$HOME/bc250-framecap" && cargo build
    --locked`. The supplied manifest references the debug library, not the
    release build.
 4. With a graphical session and `vkcube` installed, test a Vulkan application
    outside the game:
 
    ```sh
-   VK_LAYER_PATH="$HOME/FrameCap/layer" \
-     VK_INSTANCE_LAYERS=VK_LAYER_FRAMECAP_observability \
+   VK_LAYER_PATH="$HOME/bc250-framecap/layer" \
+     VK_INSTANCE_LAYERS=VK_LAYER_BC250_framecap \
      vkcube --c 300
    ```
 
@@ -133,7 +133,7 @@ For a Windows game running through Proton, temporarily use the following Steam
 launch options to enable Proton logging while keeping Framecap enabled:
 
 ```sh
-PROTON_LOG=1 PROTON_LOG_DIR=/tmp VK_LOADER_DEBUG=error,warn,layer VK_LAYER_PATH="$HOME/FrameCap/layer" VK_INSTANCE_LAYERS=VK_LAYER_FRAMECAP_observability %command%
+PROTON_LOG=1 PROTON_LOG_DIR=/tmp VK_LOADER_DEBUG=error,warn,layer VK_LAYER_PATH="$HOME/bc250-framecap/layer" VK_INSTANCE_LAYERS=VK_LAYER_BC250_framecap %command%
 ```
 
 Launch the game, reproduce the problem, and close it. Proton writes
@@ -150,8 +150,8 @@ For a native Vulkan test, capture stderr directly:
 
 ```sh
 VK_LOADER_DEBUG=error,warn,layer \
-  VK_LAYER_PATH="$HOME/FrameCap/layer" \
-  VK_INSTANCE_LAYERS=VK_LAYER_FRAMECAP_observability \
+  VK_LAYER_PATH="$HOME/bc250-framecap/layer" \
+  VK_INSTANCE_LAYERS=VK_LAYER_BC250_framecap \
   vkcube --c 300 2> "$HOME/framecap-vulkan-loader.log"
 ```
 

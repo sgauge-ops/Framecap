@@ -8,6 +8,7 @@ changes, not necessarily when development originally took place.
 
 | Date | Changes |
 | --- | --- |
+| 2026-11-11 | Renamed `VK_LAYER_FRAMECAP_observability` to `VK_LAYER_BC250_framecap`; update `VK_INSTANCE_LAYERS` in launch options and scripts. |
 | 2026-11-11 | Added a GitHub Actions release workflow that packages a Linux x86_64 binary and Vulkan manifest as a release asset. |
 | 2026-11-11 | Added GDDR6 hotspot, GTT used/total and system RAM used to the full modern overlay. Grouped GDDR6 with PPT and FAN, placed RAM under FAN, and increased the dashboard height to 230 px at 1×. Harmonized hardware label sizes, aligned labels and values on a common baseline, right-aligned values by unit and reduced spacing between labels and values. |
 | 2026-11-11 | Added GTT used/total, system RAM used and BC-250 GDDR6 hotspot to the ASCII overlay. `[framecap].memory_poll_rate_ms` defaults to 5000 ms; values below 2000 ms disable the `bc250_memory` hwmon reader. |

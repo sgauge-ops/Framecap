@@ -46,7 +46,7 @@ fn run_vkcube(
         .env("VK_LAYER_PATH", root.join("layer"))
         .env_remove("VK_INSTANCE_LAYERS");
     if layer_enabled {
-        command.env("VK_INSTANCE_LAYERS", "VK_LAYER_FRAMECAP_observability");
+        command.env("VK_INSTANCE_LAYERS", "VK_LAYER_BC250_framecap");
     }
     if immediate {
         command.args(["--present_mode", "0"]);

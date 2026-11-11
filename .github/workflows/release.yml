@@ -35,9 +35,9 @@ jobs:
           python3 -c '
           import json
           from pathlib import Path
-          manifest = json.loads(Path("layer/VkLayer_FRAMECAP_observability.json").read_text())
+          manifest = json.loads(Path("layer/VkLayer_BC250_framecap.json").read_text())
           manifest["layer"]["library_path"] = "../lib/libframecap.so"
-          Path("dist/layer/VkLayer_FRAMECAP_observability.json").write_text(
+          Path("dist/layer/VkLayer_BC250_framecap.json").write_text(
               json.dumps(manifest, indent=2) + "\n"
           )
           '

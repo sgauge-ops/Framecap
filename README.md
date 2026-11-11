@@ -60,7 +60,7 @@ From your home directory, with a graphical session and `vkcube` available:
 
 ```sh
 cd ~/ ;
-VK_LAYER_PATH="$HOME/bc250-framecap/layer" VK_INSTANCE_LAYERS=VK_LAYER_FRAMECAP_observability vkcube --c 300
+VK_LAYER_PATH="$HOME/bc250-framecap/layer" VK_INSTANCE_LAYERS=VK_LAYER_BC250_framecap vkcube --c 300
 ```
 
 Framecap should show-up :
@@ -72,7 +72,7 @@ Framecap should show-up :
 Under **Properties > General > Launch Options**, add:
 
 ```sh
-VK_LAYER_PATH="$HOME/bc250-framecap/layer" VK_INSTANCE_LAYERS=VK_LAYER_FRAMECAP_observability %command%
+VK_LAYER_PATH="$HOME/bc250-framecap/layer" VK_INSTANCE_LAYERS=VK_LAYER_BC250_framecap %command%
 ```
 
 Steam replaces `%command%` with the game command. This activates the layer for
