@@ -8,6 +8,7 @@ changes, not necessarily when development originally took place.
 
 | Date | Changes |
 | --- | --- |
+| 2026-11-11 | Added GTT used/total, system RAM used and BC-250 GDDR6 hotspot to the ASCII overlay. `[framecap].memory_poll_rate_ms` defaults to 5000 ms; values below 2000 ms disable the `bc250_memory` hwmon reader. |
 | 2026-11-09 | Shifted the HYS label and value one character left in the modern overlay. |
 | 2026-11-09 | Changed VRM and FAN F6/F7 controls to adjust the active target by the configured hysteresis, leaving hysteresis unchanged; changes are temporary. JIT continues to adjust hysteresis. |
 | 2026-11-09 | Changed global shortcut keys from F9–F12 to F5–F8 to avoid Steam conflicts. Existing explicit key bindings must be updated; invalid or duplicate bindings disable global shortcuts. |

@@ -34,7 +34,7 @@ fn run_vkcube(
     fs::write(
         config_dir.join("framecap.toml"),
         format!(
-            "[manual-mode]\nstartup_fps = {target_fps}\n\n[key-bindings]\ninput_enabled = false\n\n[overlay]\nstartup = {overlay_startup}\nrenderer = \"{renderer}\"\nfps_color = [17, 128, 240]\n\n[diagnostics]\nlog_path = {:?}\n",
+            "[framecap]\nmemory_poll_rate_ms = 0\n\n[manual-mode]\nstartup_fps = {target_fps}\n\n[key-bindings]\ninput_enabled = false\n\n[overlay]\nstartup = {overlay_startup}\nrenderer = \"{renderer}\"\nfps_color = [17, 128, 240]\n\n[diagnostics]\nlog_path = {:?}\n",
             log_path.display().to_string()
         ),
     )

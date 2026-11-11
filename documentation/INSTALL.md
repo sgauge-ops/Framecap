@@ -3,7 +3,7 @@
 Framecap is an explicit Vulkan layer for Linux; there is no separate application
 to launch. The instructions below build from source and activate it for one
 process or Steam game. The project is experimental. The default installation
-directory is `$HOME/bc250-framecap`; it contains both the configuration and the
+directory is `$HOME/FrameCap`; it contains both the configuration and the
 built Vulkan layer library.
 
 ## Requirements
@@ -27,8 +27,8 @@ distribution.
 ## Download and build
 
 ```sh
-git clone https://github.com/sgauge-ops/Framecap.git "$HOME/bc250-framecap"
-cd "$HOME/bc250-framecap"
+git clone https://github.com/sgauge-ops/bc250-framecap.git "$HOME/FrameCap"
+cd "$HOME/FrameCap"
 cargo build --locked
 ```
 
@@ -40,14 +40,14 @@ library in those relative locations; rebuild after changing source code.
 
 ## Configure
 
-Edit `$HOME/bc250-framecap/framecap.toml` for your machine. To make this
+Edit `$HOME/FrameCap/framecap.toml` for your machine. To make this
 configuration available to games launched from other directories, create a
 symbolic link in the configuration directory searched by Framecap:
 
 ```sh
 CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}"
 mkdir -p "$CONFIG_DIR"
-ln -sT "$HOME/bc250-framecap/framecap.toml" "$CONFIG_DIR/framecap.toml"
+ln -sT "$HOME/FrameCap/framecap.toml" "$CONFIG_DIR/framecap.toml"
 ```
 
 The link command does not overwrite an existing configuration. If the
@@ -65,7 +65,7 @@ directory takes precedence over the link. See [configuration](CONFIGURATION.md).
 Under **Properties > General > Launch Options**, add:
 
 ```sh
-VK_LAYER_PATH="$HOME/bc250-framecap/layer" VK_INSTANCE_LAYERS=VK_LAYER_FRAMECAP_observability %command%
+VK_LAYER_PATH="$HOME/FrameCap/layer" VK_INSTANCE_LAYERS=VK_LAYER_FRAMECAP_observability %command%
 ```
 
 Steam replaces `%command%` with the game command. This activates the layer for
@@ -76,7 +76,7 @@ that game, not globally. Remove the launch options to disable it.
 From the installed source directory, with a graphical session and `vkcube`:
 
 ```sh
-cd "$HOME/bc250-framecap"
+cd "$HOME/FrameCap"
 VK_LAYER_PATH="$PWD/layer" VK_INSTANCE_LAYERS=VK_LAYER_FRAMECAP_observability vkcube --c 300
 ```
 
@@ -95,7 +95,7 @@ For automated checks, run `cargo build --locked && cargo test --locked`. The
 ## Uninstall
 
 Remove the Steam launch options and, if no longer needed, delete
-`$HOME/bc250-framecap` and its configuration link in `$XDG_CONFIG_HOME` or
+`$HOME/FrameCap` and its configuration link in `$XDG_CONFIG_HOME` or
 `$HOME/.config`. Verify that the link points to the installation before
 removing it. Remove the diagnostics log separately if desired. Framecap does
 not install a global Vulkan manifest.

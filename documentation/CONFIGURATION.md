@@ -17,7 +17,7 @@ validation behavior, documented in the
 defaults.** In particular it sets an initial target of 90 FPS, selects specific
 hwmon devices and labels, and writes diagnostics to `/tmp/framecap.log`. Review
 it before using it on a different machine. The [installation procedure](INSTALL.md) keeps
-this file in `$HOME/bc250-framecap` and links it from the user configuration
+this file in `$HOME/FrameCap` and links it from the user configuration
 directory. If running from the repository root, that file overrides the user
 configuration.
 
@@ -25,7 +25,7 @@ configuration.
 
 | Section | Purpose |
 | --- | --- |
-| `[framecap]` | Metrics window and GPU polling interval. |
+| `[framecap]` | Metrics window, GPU polling interval and BC-250 memory-temperature polling. |
 | `[key-bindings]` | Enable and assign distinct F5-F8 shortcuts. |
 | `[sensors]` | Optional hwmon device/label selectors or path overrides for temperatures, power, and fan speed. |
 | `[overlay]` | Visibility, refresh, smoothing, text scaling, FPS color, and background. |
@@ -37,6 +37,13 @@ configuration.
 The [example file](../framecap.toml) documents individual keys and built-in
 defaults. The three automatic algorithms and their complete rules are described
 in [automatic regulation](AUTO-MODE.md).
+
+`[framecap].memory_poll_rate_ms` sets the GDDR6 hotspot polling interval
+(default 5000 ms). Any value below 2000 ms disables this temperature reading;
+zero disables it without a warning. GTT and RAM readings remain enabled.
+Polling reads the `bc250_memory` hwmon driver without `pkexec` or Polkit.
+See [overlay](OVERLAY.md) for the prerequisites, SMU concurrency warning,
+failure behavior, and shutdown implications.
 
 Sensor selectors match the hwmon device's `name` and sensor label rather than
 the volatile `hwmonN` index. For example:

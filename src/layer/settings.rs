@@ -8,6 +8,7 @@ use std::path::PathBuf;
 pub struct FramecapSettings {
     pub window_size: usize,
     pub gpu_poll_rate_ms: u64,
+    pub memory_poll_rate_ms: u64,
 }
 
 impl Default for FramecapSettings {
@@ -16,6 +17,7 @@ impl Default for FramecapSettings {
         Self {
             window_size: 60,
             gpu_poll_rate_ms: 100,
+            memory_poll_rate_ms: 5000,
         }
     }
 }
@@ -272,6 +274,7 @@ struct RawFramecapSettings {
     target_fps: Option<f32>,
     window_size: Option<usize>,
     gpu_poll_rate_ms: Option<u64>,
+    memory_poll_rate_ms: Option<u64>,
     input_enabled: Option<bool>,
     hotkey_auto: Option<String>,
     hotkey_up: Option<String>,
@@ -437,6 +440,9 @@ impl Settings {
                 gpu_poll_rate_ms: framecap
                     .gpu_poll_rate_ms
                     .unwrap_or(defaults.framecap.gpu_poll_rate_ms),
+                memory_poll_rate_ms: framecap
+                    .memory_poll_rate_ms
+                    .unwrap_or(defaults.framecap.memory_poll_rate_ms),
             },
             key_bindings: KeyBindingsSettings {
                 input_enabled: key_bindings
@@ -688,6 +694,20 @@ fn diagnostics_append_log(append_log: Option<u8>) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn memory_poll_rate_defaults_and_parses() {
+        assert_eq!(Settings::default().framecap.memory_poll_rate_ms, 5000);
+        for value in [0, 1999, 2000, 5000] {
+            let raw: RawSettings =
+                toml::from_str(&format!("[framecap]\nmemory_poll_rate_ms = {value}")).unwrap();
+            assert_eq!(raw.framecap.memory_poll_rate_ms, Some(value));
+        }
+        assert!(toml::from_str::<RawSettings>("[framecap]\nmemory_poll_rate_ms = -1").is_err());
+        assert!(
+            toml::from_str::<RawSettings>("[framecap]\nmemory_poll_rate_ms = \"5000\"").is_err()
+        );
+    }
 
     #[test]
     fn default_and_shipped_shortcuts_use_f5_through_f8() {

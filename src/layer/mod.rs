@@ -5,6 +5,7 @@ pub mod diagnostics;
 pub mod input_x11;
 pub mod lib;
 pub mod limiter;
+pub mod memory_temperature;
 pub mod metrics;
 pub mod overlay;
 pub mod renderer;

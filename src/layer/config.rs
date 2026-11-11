@@ -118,6 +118,7 @@ pub struct Config {
     pub target_fps: Option<f32>,
     pub window_size: usize,
     pub gpu_poll_rate_ms: u64,
+    pub memory_poll_rate_ms: u64,
     pub gpu_expiry_ms: u64,
     pub gpu_smoothing_window_ms: u64,
     pub refresh_rate: u64,
@@ -177,6 +178,13 @@ impl Config {
             1000,
             100,
         );
+        let memory_poll_rate_ms = validate_memory_poll_rate(framecap.memory_poll_rate_ms);
+        if memory_poll_rate_ms == 0 && framecap.memory_poll_rate_ms != 0 {
+            diagnostics::warn(format!(
+                    "Invalid [framecap].memory_poll_rate_ms={}: values below 2000 ms disable memory temperature polling",
+                    framecap.memory_poll_rate_ms
+                ));
+        }
         let refresh_rate = match positive_u64(overlay.refresh_rate) {
             Ok(rate) => rate,
             Err(reason) => {
@@ -255,6 +263,7 @@ impl Config {
             target_fps,
             window_size,
             gpu_poll_rate_ms,
+            memory_poll_rate_ms,
             refresh_rate,
             gpu_expiry_ms,
             gpu_smoothing_window_ms,
@@ -288,6 +297,14 @@ impl Config {
     }
 }
 
+fn validate_memory_poll_rate(value: u64) -> u64 {
+    if value < 2000 {
+        0
+    } else {
+        value
+    }
+}
+
 fn positive_u32_or_default(value: u32, name: &str, default: u32) -> u32 {
     if value > 0 {
         value
@@ -302,6 +319,15 @@ fn positive_u32_or_default(value: u32, name: &str, default: u32) -> u32 {
 #[cfg(test)]
 mod scale_threshold_tests {
     use super::*;
+
+    #[test]
+    fn memory_poll_rate_disables_values_below_two_seconds() {
+        assert_eq!(validate_memory_poll_rate(0), 0);
+        assert_eq!(validate_memory_poll_rate(1), 0);
+        assert_eq!(validate_memory_poll_rate(1999), 0);
+        assert_eq!(validate_memory_poll_rate(2000), 2000);
+        assert_eq!(validate_memory_poll_rate(5000), 5000);
+    }
 
     #[test]
     fn zero_scale_threshold_uses_the_default() {

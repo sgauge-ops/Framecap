@@ -3,7 +3,7 @@ use crate::layer::auto_metrics::AutoMetricsHistory;
 use crate::layer::config::{Config, Hotkey};
 use crate::layer::diagnostics;
 use crate::layer::input_x11::HotkeyWorker;
-use crate::layer::lib::{GpuMeasurement, HardwareMetrics, TelemetryStatus};
+use crate::layer::lib::{GpuMeasurement, HardwareMetrics, MemoryTemperature, TelemetryStatus};
 use crate::layer::limiter::{wait_until, FrameCapController, FrameScheduler};
 use crate::layer::renderer::{
     OverlayFeedbackEvent, OverlayFeedbackState, OverlayMode, OverlayModeState,
@@ -11,11 +11,11 @@ use crate::layer::renderer::{
 };
 use crate::layer::telemetry::{
     AmdGpuProvider, CpuUsageProvider, GpuTelemetryProvider, GpuUsageSmoother,
-    HardwareMetricsSmoother, HwmonMetricsProvider,
+    HardwareMetricsSmoother, HwmonMetricsProvider, MemoryUsageProvider,
 };
 use ash::vk::{self, Handle};
-use parking_lot::Mutex;
-use std::collections::HashMap;
+use parking_lot::{Condvar, Mutex};
+use std::collections::{HashMap, VecDeque};
 use std::ffi::{c_char, c_void, CStr};
 use std::mem;
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, Ordering};
@@ -121,6 +121,130 @@ struct TelemetryWorker {
     latest: Arc<parking_lot::RwLock<TelemetrySample>>,
     stop: Arc<AtomicBool>,
     worker: Option<JoinHandle<()>>,
+    memory: Option<MemoryTemperatureWorker>,
+}
+
+struct MemoryTemperatureWorker {
+    latest: Arc<parking_lot::RwLock<Option<(MemoryTemperature, Instant)>>>,
+    stop: Arc<(Mutex<bool>, Condvar)>,
+    worker: Option<JoinHandle<()>>,
+    interval: Duration,
+    stale_reported: AtomicBool,
+}
+
+fn smooth_memory_temperature(
+    samples: &mut VecDeque<(Instant, MemoryTemperature)>,
+    timestamp: Instant,
+    window: Duration,
+    sample: MemoryTemperature,
+) -> MemoryTemperature {
+    while samples
+        .front()
+        .is_some_and(|(previous, _)| timestamp.saturating_duration_since(*previous) > window)
+    {
+        samples.pop_front();
+    }
+    samples.push_back((timestamp, sample));
+    MemoryTemperature {
+        celsius: samples.iter().map(|(_, value)| value.celsius).sum::<f32>() / samples.len() as f32,
+        lower_bound: samples.iter().any(|(_, value)| value.lower_bound),
+    }
+}
+
+impl MemoryTemperatureWorker {
+    fn start(interval: Duration, smoothing_window: Duration) -> Self {
+        Self::start_with_reader(interval, smoothing_window, || {
+            crate::layer::memory_temperature::read_hotspot()
+        })
+    }
+
+    fn start_with_reader(
+        interval: Duration,
+        smoothing_window: Duration,
+        mut reader: impl FnMut() -> anyhow::Result<crate::layer::memory_temperature::Hotspot>
+            + Send
+            + 'static,
+    ) -> Self {
+        let latest = Arc::new(parking_lot::RwLock::new(None));
+        let stop = Arc::new((Mutex::new(false), Condvar::new()));
+        let worker_latest = Arc::clone(&latest);
+        let worker_stop = Arc::clone(&stop);
+        let worker = thread::spawn(move || {
+            let mut samples: VecDeque<(Instant, MemoryTemperature)> = VecDeque::new();
+            loop {
+                if *worker_stop.0.lock() {
+                    return;
+                }
+                match reader() {
+                    Ok(hotspot) => {
+                        let now = Instant::now();
+                        let smoothed = smooth_memory_temperature(
+                            &mut samples,
+                            now,
+                            smoothing_window,
+                            MemoryTemperature {
+                                celsius: hotspot.temperature_c as f32,
+                                lower_bound: hotspot.saturated,
+                            },
+                        );
+                        *worker_latest.write() = Some((smoothed, now));
+                    }
+                    Err(error) => {
+                        *worker_latest.write() = None;
+                        diagnostics::warn(format!(
+                            "GDDR6 temperature polling stopped after error: {error:#}; restart the application to retry"
+                        ));
+                        return;
+                    }
+                }
+                let (lock, wake) = &*worker_stop;
+                let mut stopped = lock.lock();
+                let started = Instant::now();
+                while !*stopped && started.elapsed() < interval {
+                    let remaining = interval.saturating_sub(started.elapsed());
+                    wake.wait_for(&mut stopped, remaining.min(Duration::from_secs(1)));
+                }
+                if *stopped {
+                    return;
+                }
+            }
+        });
+        Self {
+            latest,
+            stop,
+            worker: Some(worker),
+            interval,
+            stale_reported: AtomicBool::new(false),
+        }
+    }
+
+    fn current(&self) -> Option<MemoryTemperature> {
+        let latest = *self.latest.read();
+        match latest {
+            Some((_, timestamp)) if timestamp.elapsed() > self.interval.saturating_mul(2) => {
+                if !self.stale_reported.swap(true, Ordering::Relaxed) {
+                    diagnostics::warn("GDDR6 temperature sample is stale");
+                }
+                None
+            }
+            Some((value, _)) => {
+                self.stale_reported.store(false, Ordering::Relaxed);
+                Some(value)
+            }
+            None => None,
+        }
+    }
+
+    fn stop(&mut self) {
+        let (lock, wake) = &*self.stop;
+        *lock.lock() = true;
+        wake.notify_all();
+        if let Some(worker) = self.worker.take() {
+            if worker.join().is_err() {
+                diagnostics::error("GDDR6 temperature polling thread panicked");
+            }
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -139,13 +263,17 @@ impl TelemetryWorker {
         hwmon_provider: HwmonMetricsProvider,
         poll_rate: Duration,
         smoothing_window: Duration,
+        memory_poll_rate_ms: u64,
+        bc250: bool,
     ) -> Self {
         let initial = provider.get_metric();
         let mut smoother = GpuUsageSmoother::new(smoothing_window);
         let mut hardware_smoother = HardwareMetricsSmoother::new(smoothing_window);
         let mut cpu_usage = CpuUsageProvider::new();
+        let mut memory_usage = MemoryUsageProvider::new(&provider);
         let mut initial_hardware = hwmon_provider.get_metrics();
         initial_hardware.cpu_load_percent = cpu_usage.get_load_percent();
+        memory_usage.update(&mut initial_hardware);
         let initial_hardware_timestamp = Instant::now();
         let smoothed_hardware =
             hardware_smoother.add(initial_hardware.clone(), initial_hardware_timestamp);
@@ -168,6 +296,7 @@ impl TelemetryWorker {
                 }
                 let mut hardware = hwmon_provider.get_metrics();
                 hardware.cpu_load_percent = cpu_usage.get_load_percent();
+                memory_usage.update(&mut hardware);
                 let hardware_timestamp = Instant::now();
                 let smoothed_hardware = hardware_smoother.add(hardware.clone(), hardware_timestamp);
                 let gpu = provider.get_metric();
@@ -184,6 +313,19 @@ impl TelemetryWorker {
             latest,
             stop,
             worker: Some(worker),
+            memory: if memory_poll_rate_ms >= 2000 && bc250 {
+                Some(MemoryTemperatureWorker::start(
+                    Duration::from_millis(memory_poll_rate_ms),
+                    smoothing_window,
+                ))
+            } else {
+                if memory_poll_rate_ms >= 2000 && !bc250 {
+                    diagnostics::info(
+                        "GDDR6 temperature polling unavailable: selected GPU is not a BC-250",
+                    );
+                }
+                None
+            },
         }
     }
 
@@ -196,6 +338,10 @@ impl TelemetryWorker {
             sample.gpu.status = TelemetryStatus::Expired;
             sample.gpu.value = 0.0;
         }
+        sample.hardware.memory_temp = self
+            .memory
+            .as_ref()
+            .and_then(MemoryTemperatureWorker::current);
         sample
     }
 
@@ -204,6 +350,9 @@ impl TelemetryWorker {
         self.stop.store(true, Ordering::Relaxed);
         if let Some(worker) = self.worker.take() {
             let _ = worker.join();
+        }
+        if let Some(memory) = self.memory.as_mut() {
+            memory.stop();
         }
     }
 }
@@ -748,7 +897,7 @@ pub unsafe extern "system" fn vkCreateDevice(
             .collect::<Vec<_>>()
             .join(",");
         diagnostics::info(format!(
-            "configuration: startup_fps={} input_enabled={} hotkeys=auto:{:?},down:{:?},up:{:?},toggle:{:?} overlay_startup={} overlay_renderer={:?} auto_algorithms=[{}] gpu_increase_limit={} gpu_decrease_limit={} frame_jitter_limit_ms={} manual_step_fps={} manual_bounds={}..{} gpu_poll_rate_ms={} overlay_refresh_rate={} gpu_expiry_ms={} gpu_smoothing_window_ms={} background_opacity={} fps_color={:?} window_size={}",
+            "configuration: startup_fps={} input_enabled={} hotkeys=auto:{:?},down:{:?},up:{:?},toggle:{:?} overlay_startup={} overlay_renderer={:?} auto_algorithms=[{}] gpu_increase_limit={} gpu_decrease_limit={} frame_jitter_limit_ms={} manual_step_fps={} manual_bounds={}..{} gpu_poll_rate_ms={} memory_poll_rate_ms={} overlay_refresh_rate={} gpu_expiry_ms={} gpu_smoothing_window_ms={} background_opacity={} fps_color={:?} window_size={}",
             config.target_fps.map_or_else(|| "OFF".to_owned(), |fps| fps.to_string()),
             config.input_enabled,
             config.hotkey_auto,
@@ -765,6 +914,7 @@ pub unsafe extern "system" fn vkCreateDevice(
             config.manual_min_fps,
             config.manual_max_fps,
             config.gpu_poll_rate_ms,
+            config.memory_poll_rate_ms,
             config.refresh_rate,
             config.gpu_expiry_ms,
             config.gpu_smoothing_window_ms,
@@ -840,6 +990,9 @@ pub unsafe extern "system" fn vkCreateDevice(
             "GPU telemetry provider selected: sysfs_path={:?}",
             gpu_provider.card_path
         ));
+        let memory_gpu_supported = physical_properties.vendor_id == 0x1002
+            && physical_properties.device_id == 0x13fe
+            && !gpu_provider.card_path.is_empty();
         devices().lock().insert(
             dispatch_key(*device),
             Arc::new(Mutex::new(DeviceState {
@@ -851,6 +1004,8 @@ pub unsafe extern "system" fn vkCreateDevice(
                     HwmonMetricsProvider::with_settings(&config.sensor_settings),
                     Duration::from_millis(config.gpu_poll_rate_ms),
                     Duration::from_millis(config.gpu_smoothing_window_ms),
+                    config.memory_poll_rate_ms,
+                    memory_gpu_supported,
                 ),
                 telemetry_expiry: Duration::from_millis(config.gpu_expiry_ms),
                 fps_smoothing_window: Duration::from_millis(config.gpu_smoothing_window_ms),
@@ -1356,6 +1511,107 @@ pub unsafe extern "system" fn vkQueuePresentKHR(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::mpsc;
+
+    #[test]
+    fn memory_temperature_averages_distinct_samples_and_preserves_lower_bounds() {
+        let now = Instant::now();
+        let mut history = VecDeque::new();
+        let window = Duration::from_secs(5);
+        let sample = |celsius, lower_bound| MemoryTemperature {
+            celsius,
+            lower_bound,
+        };
+        assert_eq!(
+            smooth_memory_temperature(&mut history, now, window, sample(40.0, false)),
+            sample(40.0, false)
+        );
+        assert_eq!(
+            smooth_memory_temperature(
+                &mut history,
+                now + Duration::from_secs(3),
+                window,
+                sample(120.0, true)
+            ),
+            sample(80.0, true)
+        );
+        assert_eq!(
+            smooth_memory_temperature(
+                &mut history,
+                now + Duration::from_secs(9),
+                window,
+                sample(50.0, false)
+            ),
+            sample(50.0, false)
+        );
+    }
+
+    #[test]
+    fn memory_worker_polls_without_blocking_telemetry_and_stops_between_reads() {
+        let (sender, receiver) = mpsc::channel();
+        let mut worker = MemoryTemperatureWorker::start_with_reader(
+            Duration::from_millis(100),
+            Duration::from_secs(1),
+            move || {
+                sender.send(()).unwrap();
+                Ok(crate::layer::memory_temperature::Hotspot {
+                    temperature_c: 48,
+                    saturated: false,
+                })
+            },
+        );
+        receiver.recv_timeout(Duration::from_secs(2)).unwrap();
+        assert!(receiver.recv_timeout(Duration::from_millis(30)).is_err());
+        receiver.recv_timeout(Duration::from_secs(2)).unwrap();
+        worker.stop();
+    }
+
+    #[test]
+    fn memory_worker_waits_for_in_flight_reader_on_shutdown() {
+        let (started_tx, started_rx) = mpsc::channel();
+        let (resume_tx, resume_rx) = mpsc::channel();
+        let (stopped_tx, stopped_rx) = mpsc::channel();
+        let mut worker = MemoryTemperatureWorker::start_with_reader(
+            Duration::from_secs(5),
+            Duration::from_secs(1),
+            move || {
+                started_tx.send(()).unwrap();
+                resume_rx.recv().unwrap();
+                Ok(crate::layer::memory_temperature::Hotspot {
+                    temperature_c: 48,
+                    saturated: false,
+                })
+            },
+        );
+        started_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        let stopper = thread::spawn(move || {
+            worker.stop();
+            stopped_tx.send(()).unwrap();
+        });
+        assert!(stopped_rx.recv_timeout(Duration::from_millis(100)).is_err());
+        resume_tx.send(()).unwrap();
+        stopped_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        stopper.join().unwrap();
+    }
+
+    #[test]
+    fn memory_worker_rejects_stale_samples() {
+        let worker = MemoryTemperatureWorker {
+            latest: Arc::new(parking_lot::RwLock::new(Some((
+                MemoryTemperature {
+                    celsius: 48.0,
+                    lower_bound: false,
+                },
+                Instant::now() - Duration::from_secs(5),
+            )))),
+            stop: Arc::new((Mutex::new(false), Condvar::new())),
+            worker: None,
+            interval: Duration::from_secs(2),
+            stale_reported: AtomicBool::new(false),
+        };
+        assert_eq!(worker.current(), None);
+        assert!(worker.stale_reported.load(Ordering::Relaxed));
+    }
 
     /// Supplies a test dispatch function that reports no downstream entry points.
     unsafe extern "system" fn test_gipa(

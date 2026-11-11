@@ -98,6 +98,8 @@ pub(crate) struct HardwareMetricsSmoother {
     cpu_power_w: SensorWindow,
     ppt_w: SensorWindow,
     fan_rpm: SensorWindow,
+    gtt_used_mb: SensorWindow,
+    ram_used_mb: SensorWindow,
 }
 
 impl HardwareMetricsSmoother {
@@ -112,6 +114,8 @@ impl HardwareMetricsSmoother {
             cpu_power_w: SensorWindow::new(window),
             ppt_w: SensorWindow::new(window),
             fan_rpm: SensorWindow::new(window),
+            gtt_used_mb: SensorWindow::new(window),
+            ram_used_mb: SensorWindow::new(window),
         }
     }
 
@@ -128,6 +132,10 @@ impl HardwareMetricsSmoother {
             cpu_power_w: self.cpu_power_w.add(timestamp, metrics.cpu_power_w),
             ppt_w: self.ppt_w.add(timestamp, metrics.ppt_w),
             fan_rpm: self.fan_rpm.add(timestamp, metrics.fan_rpm),
+            gtt_used_mb: self.gtt_used_mb.add(timestamp, metrics.gtt_used_mb),
+            gtt_total_mb: metrics.gtt_total_mb,
+            ram_used_mb: self.ram_used_mb.add(timestamp, metrics.ram_used_mb),
+            memory_temp: metrics.memory_temp,
         }
     }
 }
@@ -262,6 +270,112 @@ impl GpuTelemetryProvider for AmdGpuProvider {
             },
         }
     }
+}
+
+pub(crate) struct MemoryUsageProvider {
+    gtt_device: Option<PathBuf>,
+    meminfo: PathBuf,
+    gtt_used_failed: bool,
+    gtt_total_failed: bool,
+    ram_failed: bool,
+}
+
+impl MemoryUsageProvider {
+    pub(crate) fn new(gpu: &AmdGpuProvider) -> Self {
+        Self {
+            gtt_device: (!gpu.card_path.is_empty())
+                .then(|| Path::new(&gpu.card_path).parent().map(Path::to_path_buf))
+                .flatten(),
+            meminfo: PathBuf::from("/proc/meminfo"),
+            gtt_used_failed: false,
+            gtt_total_failed: false,
+            ram_failed: false,
+        }
+    }
+
+    pub(crate) fn update(&mut self, metrics: &mut HardwareMetrics) {
+        let gtt_value = |name| -> anyhow::Result<f32> {
+            let directory = self
+                .gtt_device
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("GPU sysfs device is unavailable or ambiguous"))?;
+            let path = directory.join(name);
+            let bytes = fs::read_to_string(&path)
+                .map_err(|error| anyhow::anyhow!("{}: {error}", path.display()))?
+                .trim()
+                .parse::<u64>()
+                .map_err(|error| anyhow::anyhow!("{}: {error}", path.display()))?;
+            Ok(bytes as f32 / 1_000_000.0)
+        };
+        let used = gtt_value("mem_info_gtt_used");
+        let total = gtt_value("mem_info_gtt_total");
+        let ram = fs::read_to_string(&self.meminfo)
+            .map_err(anyhow::Error::from)
+            .and_then(|contents| parse_ram_used_mb(&contents));
+        metrics.gtt_used_mb = report_memory_reading("GTT used", used, &mut self.gtt_used_failed);
+        metrics.gtt_total_mb =
+            report_memory_reading("GTT total", total, &mut self.gtt_total_failed);
+        metrics.ram_used_mb = report_memory_reading("RAM used", ram, &mut self.ram_failed);
+    }
+}
+
+fn report_memory_reading(
+    name: &str,
+    reading: anyhow::Result<f32>,
+    failed: &mut bool,
+) -> Option<f32> {
+    match reading {
+        Ok(value) => {
+            if *failed {
+                diagnostics::info(format!("{name}: reading recovered"));
+            }
+            *failed = false;
+            Some(value)
+        }
+        Err(error) => {
+            if !*failed {
+                diagnostics::warn(format!("{name}: {error:#}"));
+            }
+            *failed = true;
+            None
+        }
+    }
+}
+
+fn parse_ram_used_mb(contents: &str) -> anyhow::Result<f32> {
+    let mut total = None;
+    let mut available = None;
+    for line in contents.lines() {
+        let Some((name, value)) = line.split_once(':') else {
+            continue;
+        };
+        let target = match name {
+            "MemTotal" => &mut total,
+            "MemAvailable" => &mut available,
+            _ => continue,
+        };
+        if target.is_some() {
+            anyhow::bail!("duplicate {name} in /proc/meminfo");
+        }
+        let mut fields = value.split_whitespace();
+        let amount = fields
+            .next()
+            .ok_or_else(|| anyhow::anyhow!("missing {name} value"))?
+            .parse::<u64>()?;
+        if fields.next() != Some("kB") || fields.next().is_some() {
+            anyhow::bail!("invalid {name} units in /proc/meminfo");
+        }
+        *target = Some(amount);
+    }
+    let total = total.ok_or_else(|| anyhow::anyhow!("MemTotal is unavailable"))?;
+    let available = available.ok_or_else(|| anyhow::anyhow!("MemAvailable is unavailable"))?;
+    let used = total
+        .checked_sub(available)
+        .ok_or_else(|| anyhow::anyhow!("MemAvailable exceeds MemTotal"))?;
+    let bytes = used
+        .checked_mul(1024)
+        .ok_or_else(|| anyhow::anyhow!("RAM usage overflows bytes"))?;
+    Ok(bytes as f32 / 1_000_000.0)
 }
 
 pub struct HwmonMetricsProvider {
@@ -679,6 +793,92 @@ mod tests {
             status: TelemetryStatus::Available,
             device_id: Some(0),
         }
+    }
+
+    #[test]
+    fn parses_system_ram_usage_in_decimal_megabytes() {
+        assert_eq!(
+            parse_ram_used_mb("MemTotal: 1000000 kB\nMemAvailable: 500000 kB\n").unwrap(),
+            512.0
+        );
+        for invalid in [
+            "MemTotal: 1 kB\n",
+            "MemTotal: 1 kB\nMemAvailable: 2 kB\n",
+            "MemTotal: 1 MB\nMemAvailable: 1 kB\n",
+            "MemTotal: 1 kB\nMemTotal: 1 kB\nMemAvailable: 1 kB\n",
+            "MemTotal: 18446744073709551615 kB\nMemAvailable: 0 kB\n",
+        ] {
+            assert!(parse_ram_used_mb(invalid).is_err(), "{invalid}");
+        }
+    }
+
+    #[test]
+    fn memory_usage_reads_each_source_independently() {
+        let root = temporary_hwmon_root();
+        write_sensor_file(&root, "device/mem_info_gtt_used", "512000000\n");
+        write_sensor_file(&root, "device/mem_info_gtt_total", "12000000000\n");
+        write_sensor_file(
+            &root,
+            "meminfo",
+            "MemTotal: 5000000 kB\nMemAvailable: 1000000 kB\n",
+        );
+        let mut provider = MemoryUsageProvider {
+            gtt_device: Some(root.join("device")),
+            meminfo: root.join("meminfo"),
+            gtt_used_failed: false,
+            gtt_total_failed: false,
+            ram_failed: false,
+        };
+        let mut metrics = HardwareMetrics::default();
+        provider.update(&mut metrics);
+        assert_eq!(metrics.gtt_used_mb, Some(512.0));
+        assert_eq!(metrics.gtt_total_mb, Some(12000.0));
+        assert_eq!(metrics.ram_used_mb, Some(4096.0));
+        fs::write(root.join("device/mem_info_gtt_used"), "invalid").unwrap();
+        fs::remove_file(root.join("meminfo")).unwrap();
+        provider.update(&mut metrics);
+        assert_eq!(metrics.gtt_used_mb, None);
+        assert_eq!(metrics.gtt_total_mb, Some(12000.0));
+        assert_eq!(metrics.ram_used_mb, None);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn memory_usage_smoothing_is_independent_and_total_is_current() {
+        let now = Instant::now();
+        let mut smoother = HardwareMetricsSmoother::new(Duration::from_secs(1));
+        smoother.add(
+            HardwareMetrics {
+                gtt_used_mb: Some(100.0),
+                gtt_total_mb: Some(1000.0),
+                ram_used_mb: Some(400.0),
+                ..HardwareMetrics::default()
+            },
+            now,
+        );
+        let result = smoother.add(
+            HardwareMetrics {
+                gtt_used_mb: Some(200.0),
+                gtt_total_mb: Some(1200.0),
+                ram_used_mb: None,
+                ..HardwareMetrics::default()
+            },
+            now + Duration::from_millis(500),
+        );
+        assert_eq!(result.gtt_used_mb, Some(150.0));
+        assert_eq!(result.gtt_total_mb, Some(1200.0));
+        assert_eq!(result.ram_used_mb, None);
+        let recovered = smoother.add(
+            HardwareMetrics {
+                gtt_used_mb: None,
+                gtt_total_mb: Some(1200.0),
+                ram_used_mb: Some(800.0),
+                ..HardwareMetrics::default()
+            },
+            now + Duration::from_millis(600),
+        );
+        assert_eq!(recovered.gtt_used_mb, None);
+        assert_eq!(recovered.ram_used_mb, Some(800.0));
     }
 
     #[test]

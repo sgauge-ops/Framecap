@@ -27,11 +27,33 @@ The ascii overlay presents:
 -----------------------------------------------------------------
          MODE: AUTO (JIT) | CAP:     60 FPS  | HYS:   5.0 FPS   | TARGET: 55 FPS
 -----------------------------------------------------------------
-         GPU:   43 °C     | VRM:   57 °C     | Load:   55 %     | PPT:  32.6 W
-         CPU:   70 °C     | VRM:   61 °C     | Load:   35 %     | RPM:  1240 RPM
+         GPU:    43 °C    | VRM:   57 °C     | Load:   55 %     | PPT:  32.6 W
+         CPU:    70 °C    | VRM:   61 °C     | Load:   35 %     | RPM:  1240 RPM
+         GDDR6:  56 °C    | GTT:    512 / 12000 MB              | RAM:  4000 MB
 -----------------------------------------------------------------
          [F5] CYCLE MODE  | [F6]  -1 FPS     | [F7]  +1 FPS     | [F8] CYCLE OSD
 ```
+
+The third hardware row is shown only in the full ASCII overlay. GTT used and
+total come from the selected AMD GPU's `mem_info_gtt_used` and
+`mem_info_gtt_total` sysfs attributes. RAM used is `MemTotal - MemAvailable`
+from `/proc/meminfo`, excluding swap and accounting for reclaimable memory.
+Memory values are displayed as decimal MB (1,000,000 bytes); RAM and GTT may
+overlap on unified-memory systems and must not be added together.
+
+On a uniquely selected BC-250 GPU, GDDR6 is the hottest of all eight memory
+chips, read from the `bc250_memory` hwmon device's `VRAM Hotspot` channel.
+`[framecap].memory_poll_rate_ms` defaults to 5000 ms; values below 2000
+disable this reading, without disabling GTT or RAM. The kernel module must be
+loaded separately; Framecap does not load it, install its SMU patch, or request
+Polkit authorization. The module accesses the SMU and may apply a temporary
+patch at load time; follow the kernel's firmware and SMU debug prerequisites.
+Its mailbox access does not coordinate with other SMU tools: avoid concurrent
+overclocking, patching or other SMU transactions while polling. On an error,
+polling stops until the application is restarted; unavailable, invalid or
+stale readings display `--` and are logged. Code saturation is shown as a
+lower bound with `>=`. Closing the application waits for an ongoing kernel
+read to finish. See the [validation guide](VALIDATION.md).
 
 On release, a short press of F8 cycles full overlay → FPS only → off → full
 overlay; holding it for one second switches between `modern` and `ascii`

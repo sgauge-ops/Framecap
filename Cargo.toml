@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 authors = ["Sebastien"]
 description = "Adaptive Vulkan frame capping based on frametime jitter"
-repository = "https://github.com/sgauge-ops/Framecap"
+repository = "https://github.com/sgauge-ops/bc250-framecap"
 
 [lib]
 path = "src/lib.rs"

@@ -250,6 +250,38 @@ impl Renderer {
         )
     }
 
+    pub fn memory_sensor_text(metrics: &MetricsSnapshot) -> String {
+        let hardware = metrics.hardware_metrics();
+        let temperature = hardware
+            .memory_temp
+            .filter(|value| value.celsius.is_finite())
+            .map(|value| {
+                let prefix = if value.lower_bound { ">=" } else { "" };
+                format!("{prefix}{:.0}", value.celsius)
+            })
+            .unwrap_or_else(|| "--".to_owned());
+        let mut text = if temperature.len() > 3 {
+            format!("GDDR6: {temperature} °C")
+        } else {
+            format!("GDDR6:{temperature:>3} °C")
+        };
+        append_at_column(
+            &mut text,
+            FIRST_COLUMN,
+            &format!(
+                "| GTT: {:>5} / {:>5} MB",
+                format_optional(hardware.gtt_used_mb, 0),
+                format_optional(hardware.gtt_total_mb, 0),
+            ),
+        );
+        append_at_column(
+            &mut text,
+            THIRD_COLUMN,
+            &format!("| RAM: {:>5} MB", format_optional(hardware.ram_used_mb, 0)),
+        );
+        text
+    }
+
     /// Formats the target row and its configured hotkey hints.
     pub fn target_text(
         target_fps: Option<f32>,
@@ -461,6 +493,30 @@ fn append_at_column(text: &mut String, column: usize, segment: &str) {
     text.push_str(segment);
 }
 
+fn ascii_row_layout(scale: u32, full: bool) -> (u32, u32, u32, u32, u32, Vec<u32>) {
+    let metrics_top = 8;
+    if !full {
+        return (
+            metrics_top,
+            metrics_top,
+            metrics_top,
+            metrics_top,
+            metrics_top,
+            Vec::new(),
+        );
+    }
+    let line_step = 7 * scale + 3;
+    let sep1 = metrics_top + 9 * scale;
+    let status = sep1 + 4 * scale;
+    let sep2 = status + 9 * scale;
+    let gpu = sep2 + 4 * scale;
+    let cpu = gpu + line_step;
+    let memory = cpu + line_step;
+    let sep3 = memory + 9 * scale;
+    let target = sep3 + 4 * scale;
+    (status, gpu, cpu, memory, target, vec![sep1, sep2, sep3])
+}
+
 /// Formats the auto-mode F6/F7 hints: VRM/FAN move the target by the hysteresis, FPS by its metric step.
 pub(super) fn auto_key_hints(
     metric: Option<AutoMetric>,
@@ -560,6 +616,8 @@ fn glyph(character: char) -> [u8; 7] {
         '(' => [2, 4, 8, 8, 8, 4, 2],
         ')' => [8, 4, 2, 2, 2, 4, 8],
         '+' => [0, 4, 4, 31, 4, 4, 0],
+        '>' => [16, 8, 4, 2, 4, 8, 16],
+        '=' => [0, 0, 31, 0, 31, 0, 0],
         '[' => [14, 8, 8, 8, 8, 8, 14],
         ']' => [14, 2, 2, 2, 2, 2, 14],
         'a' => [0, 0, 14, 1, 15, 17, 15],
@@ -1239,31 +1297,39 @@ impl VulkanSwapchainRenderer {
             } else {
                 Renderer::fps_text(metrics)
             };
-            let (gpu_sensor_text, cpu_sensor_text, target_text, status_text) = if full {
-                let formatted_auto_target =
-                    auto_target.map(|target| format_auto_target(target, metrics));
-                (
-                    Renderer::gpu_sensor_text(metrics),
-                    Renderer::cpu_sensor_text(metrics),
-                    Renderer::target_text(
-                        target_fps,
-                        auto_algorithm_index,
-                        auto_target.map(|(metric, _)| metric),
-                        hysteresis,
-                        hotkeys,
-                        manual_step_fps,
-                    ),
-                    Renderer::status_text(
-                        target_fps,
-                        auto_algorithm_label,
-                        hysteresis,
-                        auto_target.map(|(metric, _)| metric),
-                        formatted_auto_target.as_deref(),
-                    ),
-                )
-            } else {
-                (String::new(), String::new(), String::new(), String::new())
-            };
+            let (gpu_sensor_text, cpu_sensor_text, memory_sensor_text, target_text, status_text) =
+                if full {
+                    let formatted_auto_target =
+                        auto_target.map(|target| format_auto_target(target, metrics));
+                    (
+                        Renderer::gpu_sensor_text(metrics),
+                        Renderer::cpu_sensor_text(metrics),
+                        Renderer::memory_sensor_text(metrics),
+                        Renderer::target_text(
+                            target_fps,
+                            auto_algorithm_index,
+                            auto_target.map(|(metric, _)| metric),
+                            hysteresis,
+                            hotkeys,
+                            manual_step_fps,
+                        ),
+                        Renderer::status_text(
+                            target_fps,
+                            auto_algorithm_label,
+                            hysteresis,
+                            auto_target.map(|(metric, _)| metric),
+                            formatted_auto_target.as_deref(),
+                        ),
+                    )
+                } else {
+                    (
+                        String::new(),
+                        String::new(),
+                        String::new(),
+                        String::new(),
+                        String::new(),
+                    )
+                };
             let feedback = if full {
                 feedback
             } else {
@@ -1273,6 +1339,7 @@ impl VulkanSwapchainRenderer {
                 &text,
                 &gpu_sensor_text,
                 &cpu_sensor_text,
+                &memory_sensor_text,
                 &target_text,
                 &status_text,
             ]
@@ -1284,36 +1351,16 @@ impl VulkanSwapchainRenderer {
                 overlay_text_scale(self.extent.width, self.scale_2x_min_width_px, widest_line);
             let metrics_top = 8;
             let line_height = scale;
-            let line_step = 7 * scale + 3;
-            let (status_top, gpu_sensor_top, cpu_sensor_top, target_top, bottom_row_top, line_tops) =
-                if full {
-                    let sep1_top = metrics_top + 7 * scale + 2 * scale;
-                    let status_top = sep1_top + line_height + 3 * scale;
-                    let sep2_top = status_top + 7 * scale + 2 * scale;
-                    let gpu_sensor_top = sep2_top + line_height + 3 * scale;
-                    let cpu_sensor_top = gpu_sensor_top + line_step;
-                    let sep3_top = cpu_sensor_top + 7 * scale + 2 * scale;
-                    let target_top = sep3_top + line_height + 3 * scale;
-                    (
-                        status_top,
-                        gpu_sensor_top,
-                        cpu_sensor_top,
-                        target_top,
-                        target_top,
-                        vec![sep1_top, sep2_top, sep3_top],
-                    )
-                } else {
-                    (
-                        metrics_top,
-                        metrics_top,
-                        metrics_top,
-                        metrics_top,
-                        metrics_top,
-                        Vec::new(),
-                    )
-                };
+            let (
+                status_top,
+                gpu_sensor_top,
+                cpu_sensor_top,
+                memory_sensor_top,
+                target_top,
+                line_tops,
+            ) = ascii_row_layout(scale, full);
             let background_width = (widest_line * 6 * scale + 20).min(self.extent.width);
-            let background_height = (bottom_row_top + 7 * scale + 8).min(self.extent.height);
+            let background_height = (target_top + 7 * scale + 8).min(self.extent.height);
             if self.background_opacity > 0.0 {
                 let rect = [
                     -1.0,
@@ -1376,6 +1423,7 @@ impl VulkanSwapchainRenderer {
                     (&text, metrics_top),
                     (&gpu_sensor_text, gpu_sensor_top),
                     (&cpu_sensor_text, cpu_sensor_top),
+                    (&memory_sensor_text, memory_sensor_top),
                 ]
             } else {
                 vec![(&text, metrics_top)]
@@ -1747,6 +1795,80 @@ mod tests {
     }
 
     #[test]
+    fn ascii_memory_row_formats_values_and_independent_unavailability() {
+        use crate::layer::lib::MemoryTemperature;
+
+        let now = Instant::now();
+        let gpu = GpuMeasurement {
+            value: 0.0,
+            timestamp: now,
+            status: TelemetryStatus::Unsupported,
+            device_id: None,
+        };
+        let snapshot = |hardware| {
+            MetricsSnapshot::new_with_hardware_metrics(
+                16.0,
+                60.0,
+                0.5,
+                55.0,
+                gpu.clone(),
+                hardware,
+                now,
+            )
+        };
+        let metrics = snapshot(HardwareMetrics {
+            memory_temp: Some(MemoryTemperature {
+                celsius: 56.0,
+                lower_bound: false,
+            }),
+            gtt_used_mb: Some(512.0),
+            gtt_total_mb: Some(12000.0),
+            ram_used_mb: Some(4000.0),
+            ..HardwareMetrics::default()
+        });
+        let line = Renderer::memory_sensor_text(&metrics);
+        assert_eq!(
+            line,
+            "GDDR6: 56 °C     | GTT:   512 / 12000 MB               | RAM:  4000 MB"
+        );
+        assert_eq!(char_column(&line, "| GTT:"), FIRST_COLUMN);
+        assert_eq!(char_column(&line, "| RAM:"), THIRD_COLUMN);
+        assert_eq!(
+            char_column(&line, " °C"),
+            char_column(&Renderer::gpu_sensor_text(&metrics), " °C")
+        );
+        assert_eq!(
+            char_column(&line, " °C"),
+            char_column(&Renderer::cpu_sensor_text(&metrics), " °C")
+        );
+        assert!(line
+            .chars()
+            .filter(|c| !c.is_whitespace())
+            .all(|c| glyph(c) != [0; 7]));
+
+        let partial = snapshot(HardwareMetrics {
+            memory_temp: Some(MemoryTemperature {
+                celsius: 120.0,
+                lower_bound: true,
+            }),
+            gtt_total_mb: Some(12000.0),
+            ..HardwareMetrics::default()
+        });
+        let line = Renderer::memory_sensor_text(&partial);
+        assert!(line.contains("GDDR6: >=120 °C"));
+        assert!(line.contains("| GTT:    -- / 12000 MB"));
+        assert!(line.contains("| RAM:    -- MB"));
+        assert!(line
+            .chars()
+            .filter(|c| !c.is_whitespace())
+            .all(|c| glyph(c) != [0; 7]));
+        let unavailable = Renderer::memory_sensor_text(&snapshot(HardwareMetrics::default()));
+        assert!(unavailable.contains("GDDR6: -- °C"));
+        assert!(unavailable.contains("| GTT:    -- /    -- MB"));
+        assert!(unavailable.contains("| RAM:    -- MB"));
+    }
+
+    #[test]
     /// Checks that metrics refresh immediately and then at the configured cadence.
     fn overlay_metrics_refresh_on_first_and_each_configured_poll() {
         let refreshed = (0..21)
@@ -1902,6 +2024,7 @@ mod tests {
                 cpu_power_w: Some(5.2),
                 ppt_w: Some(32.61),
                 fan_rpm: Some(1240.0),
+                ..HardwareMetrics::default()
             },
             now,
         );
@@ -2372,24 +2495,27 @@ mod tests {
         for scale in [1, 2] {
             let metrics_top = 8;
             let line_height = scale;
-            let line_step = 7 * scale + 3;
-            let sep1_top = metrics_top + 7 * scale + 2 * scale;
-            let status_top = sep1_top + line_height + 3 * scale;
-            let sep2_top = status_top + 7 * scale + 2 * scale;
-            let gpu_sensor_top = sep2_top + line_height + 3 * scale;
-            let cpu_sensor_top = gpu_sensor_top + line_step;
-            let sep3_top = cpu_sensor_top + 7 * scale + 2 * scale;
-            let target_top = sep3_top + line_height + 3 * scale;
-            let bottom_row_top = target_top;
-            let background_height = bottom_row_top + 7 * scale + 8;
+            let (
+                status_top,
+                gpu_sensor_top,
+                cpu_sensor_top,
+                memory_sensor_top,
+                target_top,
+                separators,
+            ) = ascii_row_layout(scale, true);
+            let [sep1_top, sep2_top, sep3_top] = separators.as_slice() else {
+                panic!("expected three separators")
+            };
+            let background_height = target_top + 7 * scale + 8;
 
-            assert!(metrics_top + 7 * scale < sep1_top);
-            assert!(sep1_top + line_height < status_top);
-            assert!(status_top + 7 * scale < sep2_top);
-            assert!(sep2_top + line_height < gpu_sensor_top);
+            assert!(metrics_top + 7 * scale < *sep1_top);
+            assert!(*sep1_top + line_height < status_top);
+            assert!(status_top + 7 * scale < *sep2_top);
+            assert!(*sep2_top + line_height < gpu_sensor_top);
             assert!(gpu_sensor_top + 7 * scale < cpu_sensor_top);
-            assert!(cpu_sensor_top + 7 * scale < sep3_top);
-            assert!(sep3_top + line_height < target_top);
+            assert!(cpu_sensor_top + 7 * scale < memory_sensor_top);
+            assert!(memory_sensor_top + 7 * scale < *sep3_top);
+            assert!(*sep3_top + line_height < target_top);
             assert!(target_top + 7 * scale < background_height);
         }
     }

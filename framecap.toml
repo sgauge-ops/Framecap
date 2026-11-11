@@ -4,6 +4,7 @@
 [framecap]
 window_size = 60        # Metrics aggregator window size. Built-in default: 60 samples; valid range: 1-4096; invalid values use the default.
 gpu_poll_rate_ms = 200  # GPU telemetry polling and AUTO evaluation interval; also the minimum collection time at startup or after a CAP change before FPS, 10% low, and jitter become available. Built-in default: 100 ms; valid range: 10-1000 ms; invalid values use the default.
+memory_poll_rate_ms = 5000 # GDDR6 hotspot polling through bc250_memory hwmon; below 2000 ms disables it. Built-in default: 5000 ms.
 
 [key-bindings]
 input_enabled = true    # Enable global function-key shortcuts. Built-in default: true; shortcuts require X11/XWayland; invalid TOML types reject the file.

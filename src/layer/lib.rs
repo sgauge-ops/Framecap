@@ -36,6 +36,16 @@ pub struct HardwareMetrics {
     pub cpu_power_w: Option<f32>,
     pub ppt_w: Option<f32>,
     pub fan_rpm: Option<f32>,
+    pub gtt_used_mb: Option<f32>,
+    pub gtt_total_mb: Option<f32>,
+    pub ram_used_mb: Option<f32>,
+    pub memory_temp: Option<MemoryTemperature>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct MemoryTemperature {
+    pub celsius: f32,
+    pub lower_bound: bool,
 }
 
 #[derive(Debug, Clone)]

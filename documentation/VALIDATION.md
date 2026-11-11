@@ -20,6 +20,31 @@
 
 ## Repeatable test plan
 
+### BC-250 GDDR6 probe
+
+The optional `bc250-memory-probe` binary reports the DMI BIOS version and one
+GDDR6 hotspot sample. Build with `cargo build --locked --bin bc250-memory-probe`
+and run `target/debug/bc250-memory-probe` as the desktop user. `--bios-only`
+checks the BIOS without accessing the SMU or requesting authorization.
+
+The probe reads the `VRAM Hotspot` sensor exposed by the loaded
+`bc250_memory` hwmon driver. It does not invoke Control Center, `pkexec` or
+load the module. The driver accesses the SMU and may install a temporary
+firmware patch; follow its firmware, debug-access and concurrency warnings.
+A saturated reading is shown as `>=120 °C`, not as an exact temperature.
+Missing, ambiguous, malformed and out-of-range readings are errors. A
+successful offline test or BIOS-only invocation is not a hardware validation.
+
+For the full ASCII overlay, test `[framecap].memory_poll_rate_ms` with `0`,
+`1999`, `2000`, and `5000`. Verify that only the first two disable GDDR6,
+while GTT and RAM remain available; automated `vkcube` tests explicitly disable
+GDDR6 to avoid touching the SMU. With the module enabled and no conflicting
+SMU transaction running, compare the hotspot with `sensors 'bc250_memory-*'`.
+Verify missing and stale readings, saturation, ASCII alignment and clipping,
+and unchanged modern/FPS-only modes. A failed read stops further attempts for
+that application; inspect the diagnostic log before restarting. A pending
+kernel read is allowed to finish when the application closes.
+
 Test `vkcube`, a Vulkan stress test, and multiple native and Steam/Proton games
 across available GPUs, drivers, X11/XCB, XWayland, and native Wayland. For each
 combination, check layer loading, presentation, overlay visible/hidden,
