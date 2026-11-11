@@ -24,28 +24,39 @@ Holding [F8] for one second switches between the `modern` and `ascii` renderers.
 
 # Short installation guide
 
-## Install RUST toolchain
-```sh
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-```
+## Install the Linux x86_64 binary
 
-## Download and build Framecap
+Download and extract the archive attached to the
+[latest release](https://github.com/sgauge-ops/bc250-framecap/releases/latest):
 
 ```sh
-git clone https://github.com/sgauge-ops/bc250-framecap.git "$HOME/bc250-framecap ;
-cd "$HOME/bc250-framecap ;
-cargo build --locked
+mkdir -p "$HOME/FrameCap"
+curl -fL https://github.com/sgauge-ops/bc250-framecap/releases/latest/download/framecap-linux-x86_64.tar.gz \
+  | tar -xz -C "$HOME/FrameCap"
 ```
+
+The archive contains the Vulkan layer manifest, release library, and an example
+configuration. It does not replace a local `framecap.toml`; FrameCap uses
+built-in defaults if no configuration file exists. This binary targets 64-bit
+x86 Linux with glibc 2.35 or newer. Other architectures and native Wayland
+shortcuts are not supported by this binary.
 
 ## Configure
 
-Edit `$HOME/bc250-framecap/framecap.toml` for your machine. To make this
+To start with the example configuration, copy it once and review its
+machine-specific sensor overrides:
+
+```sh
+cp -n "$HOME/FrameCap/framecap.toml.example" "$HOME/FrameCap/framecap.toml"
+```
+
+Edit `$HOME/FrameCap/framecap.toml` for your machine. To make this
 configuration available to games launched from other directories, create a
 symbolic link in the configuration directory searched by Framecap:
 
 ```sh
 mkdir -p "$HOME/.config" ;
-ln -sT "$HOME/bc250-framecap/framecap.toml" "$HOME/.config/framecap.toml"
+ln -sT "$HOME/FrameCap/framecap.toml" "$HOME/.config/framecap.toml"
 ```
 
 ## Test with vkcube
@@ -54,7 +65,7 @@ From your home directory, with a graphical session and `vkcube` available:
 
 ```sh
 cd ~/ ;
-VK_LAYER_PATH="$HOME/bc250-framecap/layer" VK_INSTANCE_LAYERS=VK_LAYER_FRAMECAP_observability vkcube --c 300
+VK_LAYER_PATH="$HOME/FrameCap/layer" VK_INSTANCE_LAYERS=VK_LAYER_FRAMECAP_observability vkcube --c 300
 ```
 
 Framecap should show-up :
@@ -66,19 +77,47 @@ Framecap should show-up :
 Under **Properties > General > Launch Options**, add:
 
 ```sh
-VK_LAYER_PATH="$HOME/bc250-framecap/layer" VK_INSTANCE_LAYERS=VK_LAYER_FRAMECAP_observability %command%
+VK_LAYER_PATH="$HOME/FrameCap/layer" VK_INSTANCE_LAYERS=VK_LAYER_FRAMECAP_observability %command%
 ```
 
 Steam replaces `%command%` with the game command. This activates the layer for
 that game, not globally. Remove the launch options to disable it.
 
+## Update
+
+```sh
+curl -fL https://github.com/sgauge-ops/bc250-framecap/releases/latest/download/framecap-linux-x86_64.tar.gz \
+  | tar -xz -C "$HOME/FrameCap"
+```
+
+Extraction updates the library and manifest without replacing
+`framecap.toml`.
+
+# Local Build
+
+## Requirements
+
+Install the [Rust toolchain](https://rustup.rs/) and the Linux development
+packages listed in the [installation guide](documentation/INSTALL.md).
+
+## Clone and build
+
+```sh
+git clone https://github.com/sgauge-ops/bc250-framecap.git "$HOME/FrameCap-src"
+cd "$HOME/FrameCap-src"
+cargo build --locked
+```
+
+The source checkout includes a development manifest that points to
+`target/debug/libframecap.so`. Activate this build with
+`VK_LAYER_PATH="$HOME/FrameCap-src/layer"`; review the machine-specific sensor
+overrides in its `framecap.toml` before use.
+
 ## Update and rebuild
 
 ```sh
-cd "$HOME/bc250-framecap ;
-cp framecap.toml framecap.bak.toml ;
-git reset --hard HEAD ;
-git pull ;
+cd "$HOME/FrameCap-src"
+git pull --ff-only
 cargo build --locked
 ```
 

@@ -1,0 +1,50 @@
+name: Release binary
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to build and upload
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  linux-x86_64:
+    runs-on: ubuntu-22.04
+    env:
+      RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Test
+        run: cargo test --locked
+      - name: Build release library
+        run: cargo build --locked --release
+      - name: Package
+        run: |
+          set -euo pipefail
+          mkdir -p dist/framecap/lib dist/framecap/layer
+          install -m 755 target/release/libframecap.so dist/framecap/lib/
+          python3 -c '
+          import json
+          from pathlib import Path
+          manifest = json.loads(Path("layer/VkLayer_FRAMECAP_observability.json").read_text())
+          manifest["layer"]["library_path"] = "../lib/libframecap.so"
+          Path("dist/framecap/layer/VkLayer_FRAMECAP_observability.json").write_text(
+              json.dumps(manifest, indent=2) + "\n"
+          )
+          '
+          install -m 644 framecap.toml dist/framecap/framecap.toml.example
+          install -m 644 README.md documentation/INSTALL.md dist/framecap/
+          tar -C dist -czf dist/framecap-linux-x86_64.tar.gz framecap
+      - name: Upload to GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$RELEASE_TAG" dist/framecap-linux-x86_64.tar.gz --repo "$GITHUB_REPOSITORY" --clobber

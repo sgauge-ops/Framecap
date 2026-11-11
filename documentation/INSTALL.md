@@ -1,30 +1,48 @@
 # Installing Framecap
 
 Framecap is an explicit Vulkan layer for Linux; there is no separate application
-to launch. The instructions below build from source and activate it for one
-process or Steam game. The project is experimental. The default installation
-directory is `$HOME/FrameCap`; it contains both the configuration and the
-built Vulkan layer library.
+to launch. The project is experimental. The default installation directory is
+`$HOME/FrameCap`; it contains the configuration and Vulkan layer files.
 
 ## Requirements
 
 - 64-bit Linux, a graphical session, a working Vulkan loader, and a Vulkan driver.
-- Rust and Cargo; see [rustup](https://rustup.rs/) if needed.
+- `curl` and `tar` to install a release binary, or Rust and Cargo to build from
+  source; see [rustup](https://rustup.rs/) if needed.
 - `git` to clone the sources; `vkcube` and `timeout` for the optional test.
 - X11 or XWayland for global F5-F8 shortcuts. Native Wayland does not support
   these shortcuts through the current backend.
+- The release binary is for 64-bit x86 Linux and requires glibc 2.35 or newer.
 
 For example, on Debian or Ubuntu:
 
 ```sh
 sudo apt update
-sudo apt install git build-essential libvulkan1 mesa-vulkan-drivers vulkan-tools
+sudo apt install curl tar git build-essential libvulkan1 mesa-vulkan-drivers vulkan-tools
 ```
 
 Install the correct Vulkan driver for your GPU; package names vary by
 distribution.
 
-## Download and build
+## Install a release binary
+
+Download and extract the Linux x86_64 archive from the
+[latest release](https://github.com/sgauge-ops/bc250-framecap/releases/latest):
+
+```sh
+mkdir -p "$HOME/FrameCap"
+curl -fL https://github.com/sgauge-ops/bc250-framecap/releases/latest/download/framecap-linux-x86_64.tar.gz \
+  | tar -xz -C "$HOME/FrameCap"
+```
+
+The archive contains `layer/` and `lib/`. Its Vulkan manifest points to the
+release library in `lib/`. Extraction updates those files without replacing a
+local `framecap.toml`. It also includes `framecap.toml.example`; copy that file
+to `framecap.toml` if you want to configure the layer, then review its
+machine-specific sensor selectors. If no configuration exists, Framecap uses
+its built-in defaults.
+
+## Build from source
 
 ```sh
 git clone https://github.com/sgauge-ops/bc250-framecap.git "$HOME/FrameCap"
