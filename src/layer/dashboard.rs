@@ -4,7 +4,9 @@ use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 
 const WIDTH: u32 = 370;
-const HEIGHT: u32 = 215;
+const HEIGHT: u32 = 230;
+const HARDWARE_TEXT_SIZE: u32 = 14;
+const HARDWARE_LABEL_SIZE: u32 = 12;
 const FPS_VALUE_WIDTH: u32 = 94;
 const FPS_LABEL_GAP: u32 = 6;
 const LABEL: usize = 0;
@@ -214,6 +216,40 @@ impl Dashboard {
         bold: bool,
         group: usize,
     ) -> u32 {
+        self.draw_text(text, x, y, size, width, bold, group, false, false)
+    }
+
+    fn hardware_text(&mut self, text: &str, x: u32, y: u32, width: u32, group: usize) {
+        let size = if group == LABEL {
+            HARDWARE_LABEL_SIZE
+        } else {
+            HARDWARE_TEXT_SIZE
+        };
+        self.draw_text(
+            text,
+            x,
+            y + HARDWARE_TEXT_SIZE - size,
+            size,
+            width,
+            true,
+            group,
+            true,
+            group == VALUE,
+        );
+    }
+
+    fn draw_text(
+        &mut self,
+        text: &str,
+        x: u32,
+        y: u32,
+        size: u32,
+        width: u32,
+        bold: bool,
+        group: usize,
+        align_baseline: bool,
+        align_right: bool,
+    ) -> u32 {
         let mut cache = FONTS
             .get_or_init(|| Mutex::new(FontCache::new()))
             .lock()
@@ -222,6 +258,7 @@ impl Dashboard {
         let y = y * self.scale;
         let width = width * self.scale;
         let mut size = size * self.scale;
+        let baseline = y + size;
         let min_size = 8 * self.scale;
         let text_width = |cache: &mut FontCache, text: &str, size| {
             text.chars()
@@ -240,13 +277,18 @@ impl Dashboard {
             }
             visible.push('…');
         }
-        let mut cursor = x as f32;
         let limit = x.saturating_add(width);
+        let mut cursor = if align_right {
+            (limit as f32 - text_width(&mut cache, &visible, size)).max(x as f32)
+        } else {
+            x as f32
+        };
         let mut right = x;
+        let baseline = if align_baseline { baseline } else { y + size };
         for character in visible.chars() {
             let glyph = cache.glyph(character, size, bold);
             let gx = cursor.round() as i32 + glyph.metrics.xmin;
-            let gy = y as i32 + size as i32 - glyph.metrics.height as i32 - glyph.metrics.ymin;
+            let gy = baseline as i32 - glyph.metrics.height as i32 - glyph.metrics.ymin;
             for &(dx, dy, span_width, coverage) in &glyph.spans {
                 let left = gx + dx as i32;
                 let top = gy + dy as i32;
@@ -648,37 +690,50 @@ pub(super) fn layout(
             display(hardware.cpu_load_percent, 0, "%"),
         ),
     ] {
-        for (x, value_width, label, value) in [
-            (16, 68, name, display(temp, 0, "°C")),
-            (138, 68, "VRM", display(vrm, 0, "°C")),
-            (260, 40, "LOAD", load),
+        for (x, value_x, value_width, label, value) in [
+            (16, 66, 46, name, display(temp, 0, "°C")),
+            (130, 166, 52, "VRM", display(vrm, 0, "°C")),
+            (238, 275, 53, "LOAD", load),
         ] {
-            dashboard.text(label, x, y, 12, 50, true, LABEL);
-            dashboard.text(&value, x + 54, y, 14, value_width, true, VALUE);
+            dashboard.hardware_text(label, x, y, value_x - x, LABEL);
+            dashboard.hardware_text(&value, value_x, y, value_width, VALUE);
         }
     }
-    dashboard.rect(LINE, 16, 153, WIDTH - 32, 1);
-    dashboard.text("PPT", 16, 159, 12, 45, true, LABEL);
-    dashboard.text(
-        &display(hardware.ppt_w, 1, "W"),
-        70,
-        159,
-        14,
-        125,
-        true,
+    for (x, value_x, width, label, value) in [
+        (
+            16,
+            66,
+            46,
+            "GDDR6",
+            format!("{} °C", format_memory_temperature(hardware.memory_temp)),
+        ),
+        (130, 166, 52, "PPT", display(hardware.ppt_w, 1, "W")),
+        (238, 275, 53, "FAN", display(hardware.fan_rpm, 0, "RPM")),
+    ] {
+        dashboard.hardware_text(label, x, 153, value_x - x, LABEL);
+        dashboard.hardware_text(&value, value_x, 153, width, VALUE);
+    }
+    dashboard.hardware_text("GTT", 16, 174, 50, LABEL);
+    dashboard.hardware_text(
+        &format!(
+            "{} / {} MB",
+            format_optional(hardware.gtt_used_mb, 0),
+            format_optional(hardware.gtt_total_mb, 0)
+        ),
+        66,
+        174,
+        152,
         VALUE,
     );
-    dashboard.text("FAN", 200, 159, 12, 45, true, LABEL);
-    dashboard.text(
-        &display(hardware.fan_rpm, 0, "RPM"),
-        254,
-        159,
-        14,
-        100,
-        true,
+    dashboard.hardware_text("RAM", 238, 174, 37, LABEL);
+    dashboard.hardware_text(
+        &format!("{} MB", format_optional(hardware.ram_used_mb, 0)),
+        275,
+        174,
+        53,
         VALUE,
     );
-    dashboard.rect(LINE, 16, 180, WIDTH - 32, 1);
+    dashboard.rect(LINE, 16, 195, WIDTH - 32, 1);
     let (down, up) = if auto_algorithm_index.is_some() {
         auto_target.map_or_else(
             || ("--".into(), "--".into()),
@@ -705,7 +760,7 @@ pub(super) fn layout(
         };
         dashboard.styled_box(
             x,
-            186,
+            201,
             30,
             20,
             if feedback.hotkey == Some(hotkey) {
@@ -714,8 +769,8 @@ pub(super) fn layout(
                 BoxStyle::Key
             },
         );
-        dashboard.text(hotkey.label(), x + 4, 188, 11, 23, true, color);
-        dashboard.text(&action, x + 36, 188, 11, width, true, LABEL);
+        dashboard.text(hotkey.label(), x + 4, 203, 11, 23, true, color);
+        dashboard.text(&action, x + 36, 203, 11, width, true, LABEL);
     }
     dashboard
 }
@@ -761,7 +816,11 @@ mod tests {
             edges: std::array::from_fn(|_| std::array::from_fn(|_| Vec::new())),
             boxes: Vec::new(),
         };
-        reference.text(text, x, y, size, width, true, group);
+        if group == VALUE && size == HARDWARE_TEXT_SIZE && (111..=174).contains(&y) {
+            reference.hardware_text(text, x, y, width, group);
+        } else {
+            reference.text(text, x, y, size, width, true, group);
+        }
         assert!(!reference.groups[group].is_empty());
         assert!(
             reference.groups[group]
@@ -789,6 +848,13 @@ mod tests {
                 cpu_load_percent: Some(35.0),
                 ppt_w: Some(32.6),
                 fan_rpm: Some(1240.0),
+                memory_temp: Some(MemoryTemperature {
+                    celsius: 56.0,
+                    lower_bound: false,
+                }),
+                gtt_used_mb: Some(512.0),
+                gtt_total_mb: Some(12000.0),
+                ram_used_mb: Some(4000.0),
                 ..HardwareMetrics::default()
             },
             TelemetryStatus::Available,
@@ -811,7 +877,7 @@ mod tests {
             },
             1,
         );
-        assert_eq!((dashboard.width, dashboard.height), (370, 215));
+        assert_eq!((dashboard.width, dashboard.height), (370, 230));
         for (text, x, y, size, width, group) in [
             ("60", 16, 24, 36, FPS_VALUE_WIDTH, ACCENT),
             ("55 FPS", 150, 42, 18, 104, VALUE),
@@ -820,12 +886,26 @@ mod tests {
             ("60 FPS", 128, 88, 14, 68, FEEDBACK),
             ("5.0 FPS", 196, 88, 14, 56, FEEDBACK),
             ("55 FPS", 259, 88, 14, 95, VALUE),
-            ("43 °C", 70, 111, 14, 68, VALUE),
-            ("35 %", 314, 132, 14, 40, VALUE),
-            ("32.6 W", 70, 159, 14, 125, VALUE),
-            ("1240 RPM", 254, 159, 14, 100, VALUE),
-            ("F6", 108, 188, 11, 23, FEEDBACK),
-            ("-1 FPS", 140, 188, 11, 50, LABEL),
+            ("GPU", 16, 113, 12, 50, LABEL),
+            ("43 °C", 66, 111, 14, 46, VALUE),
+            ("VRM", 130, 113, 12, 36, LABEL),
+            ("LOAD", 238, 113, 12, 37, LABEL),
+            ("CPU", 16, 134, 12, 50, LABEL),
+            ("VRM", 130, 134, 12, 36, LABEL),
+            ("LOAD", 238, 134, 12, 37, LABEL),
+            ("35 %", 275, 132, 14, 53, VALUE),
+            ("GDDR6", 16, 155, 12, 50, LABEL),
+            ("56 °C", 66, 153, 14, 46, VALUE),
+            ("PPT", 130, 155, 12, 36, LABEL),
+            ("32.6 W", 166, 153, 14, 52, VALUE),
+            ("FAN", 238, 155, 12, 37, LABEL),
+            ("1240 RPM", 275, 153, 14, 53, VALUE),
+            ("GTT", 16, 176, 12, 50, LABEL),
+            ("512 / 12000 MB", 66, 174, 14, 152, VALUE),
+            ("RAM", 238, 176, 12, 37, LABEL),
+            ("4000 MB", 275, 174, 14, 53, VALUE),
+            ("F6", 108, 203, 11, 23, FEEDBACK),
+            ("-1 FPS", 140, 203, 11, 50, LABEL),
         ] {
             assert_text(&dashboard, text, x, y, size, width, group);
         }
@@ -898,8 +978,8 @@ mod tests {
                 1,
             );
             assert_text(&dashboard, hys, 196, 88, 14, 56, VALUE);
-            assert_text(&dashboard, down, 140, 188, 11, 50, LABEL);
-            assert_text(&dashboard, up, 228, 188, 11, 50, LABEL);
+            assert_text(&dashboard, down, 140, 203, 11, 50, LABEL);
+            assert_text(&dashboard, up, 228, 203, 11, 50, LABEL);
         }
     }
 
@@ -970,8 +1050,11 @@ mod tests {
         assert_text(&dashboard, "COLLECT", 16, 24, 20, FPS_VALUE_WIDTH, ACCENT);
         assert_text(&dashboard, "COLLECT", 150, 42, 18, 104, VALUE);
         assert_text(&dashboard, "OFF", 22, 78, 13, 92, MODE);
-        assert_text(&dashboard, "STALE", 314, 111, 14, 40, VALUE);
-        assert_text(&dashboard, "--", 254, 159, 14, 100, VALUE);
+        assert_text(&dashboard, "STALE", 275, 111, 14, 53, VALUE);
+        assert_text(&dashboard, "--", 275, 153, 14, 53, VALUE);
+        assert_text(&dashboard, "-- °C", 66, 153, 14, 46, VALUE);
+        assert_text(&dashboard, "-- / -- MB", 66, 174, 14, 152, VALUE);
+        assert_text(&dashboard, "-- MB", 275, 174, 14, 53, VALUE);
         let fps_only = layout(
             &metrics,
             OverlayMode::Fps,
@@ -993,6 +1076,42 @@ mod tests {
                 && fps_only.groups[MODE].is_empty()
         );
         assert!(fps_only.boxes.is_empty());
+    }
+
+    #[test]
+    fn memory_values_show_lower_bounds_and_independent_unavailability() {
+        for scale in [1, 2] {
+            let metrics = snapshot(
+                60.0,
+                HardwareMetrics {
+                    memory_temp: Some(MemoryTemperature {
+                        celsius: 120.0,
+                        lower_bound: true,
+                    }),
+                    gtt_used_mb: Some(f32::NAN),
+                    gtt_total_mb: Some(12000.0),
+                    ram_used_mb: Some(4000.0),
+                    ..HardwareMetrics::default()
+                },
+                TelemetryStatus::Available,
+            );
+            let dashboard = layout(
+                &metrics,
+                OverlayMode::Full,
+                None,
+                None,
+                None,
+                None,
+                None,
+                KEYS,
+                5.0,
+                OverlayFeedback::default(),
+                scale,
+            );
+            assert_text(&dashboard, ">=120 °C", 66, 153, 14, 46, VALUE);
+            assert_text(&dashboard, "-- / 12000 MB", 66, 174, 14, 152, VALUE);
+            assert_text(&dashboard, "4000 MB", 275, 174, 14, 53, VALUE);
+        }
     }
 
     #[test]
@@ -1038,11 +1157,22 @@ mod tests {
             ("1000 FPS", 18, 104),
             ("240 FPS", 14, 72),
             ("100.0%", 14, 56),
-            ("100 °C", 14, 68),
+            ("100 °C", 14, 52),
             ("100 %", 14, 40),
             ("STALE", 14, 40),
             ("COLLECT FPS", 14, 95),
-            ("1240 RPM", 14, 100),
+            ("GPU", 12, 50),
+            ("CPU", 12, 50),
+            ("VRM", 12, 36),
+            ("LOAD", 12, 37),
+            ("GDDR6", 12, 50),
+            ("PPT", 12, 36),
+            ("FAN", 12, 37),
+            ("GTT", 12, 50),
+            ("RAM", 12, 37),
+            ("56 °C", 14, 46),
+            ("32.6 W", 14, 52),
+            ("512 / 12000 MB", 14, 152),
             ("-5 FPS", 11, 50),
             ("+5 FPS", 11, 50),
             ("-25 FPS", 11, 50),
@@ -1076,6 +1206,203 @@ mod tests {
     }
 
     #[test]
+    fn hardware_labels_match_metric_label_size_and_share_value_baseline() {
+        for scale in [1, 2] {
+            let metrics = snapshot(60.0, HardwareMetrics::default(), TelemetryStatus::Available);
+            let dashboard = layout(
+                &metrics,
+                OverlayMode::Full,
+                None,
+                None,
+                None,
+                None,
+                None,
+                KEYS,
+                5.0,
+                OverlayFeedback::default(),
+                scale,
+            );
+            for (label, x, y, width) in [
+                ("GPU", 16, 111, 50),
+                ("VRM", 130, 111, 36),
+                ("LOAD", 238, 111, 37),
+                ("CPU", 16, 132, 50),
+                ("VRM", 130, 132, 36),
+                ("LOAD", 238, 132, 37),
+                ("GDDR6", 16, 153, 50),
+                ("PPT", 130, 153, 36),
+                ("FAN", 238, 153, 37),
+                ("GTT", 16, 174, 50),
+                ("RAM", 238, 174, 37),
+            ] {
+                assert_text(
+                    &dashboard,
+                    label,
+                    x,
+                    y + HARDWARE_TEXT_SIZE - HARDWARE_LABEL_SIZE,
+                    HARDWARE_LABEL_SIZE,
+                    width,
+                    LABEL,
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn reduced_hardware_text_keeps_its_baseline() {
+        for scale in [1, 2] {
+            let make_dashboard = || Dashboard {
+                width: WIDTH,
+                height: HEIGHT,
+                scale,
+                groups: std::array::from_fn(|_| Vec::new()),
+                edges: std::array::from_fn(|_| std::array::from_fn(|_| Vec::new())),
+                boxes: Vec::new(),
+            };
+            for group in [LABEL, VALUE] {
+                let mut actual = make_dashboard();
+                actual.hardware_text("1240 RPM", 16, 27, 45, group);
+
+                let mut matched_size = None;
+                let initial_size = if group == LABEL {
+                    HARDWARE_LABEL_SIZE
+                } else {
+                    HARDWARE_TEXT_SIZE
+                };
+                for size in 8..initial_size {
+                    let mut reference = make_dashboard();
+                    reference.draw_text(
+                        "1240 RPM",
+                        16,
+                        27 + HARDWARE_TEXT_SIZE - size,
+                        size,
+                        45,
+                        true,
+                        group,
+                        false,
+                        group == VALUE,
+                    );
+                    if actual.groups[group] == reference.groups[group]
+                        && actual.edges[group] == reference.edges[group]
+                    {
+                        matched_size = Some(size);
+                        break;
+                    }
+                }
+                assert!(matched_size.is_some(), "baseline mismatch at {scale}×");
+            }
+        }
+    }
+
+    #[test]
+    fn compact_hardware_values_fit_without_ellipsis() {
+        let mut cache = FontCache::new();
+        for scale in [1, 2] {
+            for (text, width) in [
+                (">=120 °C", 46),
+                ("100 °C", 52),
+                ("100.0 W", 52),
+                ("9999 RPM", 53),
+                ("4000 MB", 53),
+                ("512 / 12000 MB", 152),
+            ] {
+                let advance: f32 = text
+                    .chars()
+                    .map(|c| cache.glyph(c, 8 * scale, true).metrics.advance_width)
+                    .sum();
+                assert!(
+                    advance <= (width * scale) as f32,
+                    "{text} does not fit at {scale}×"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn hardware_value_units_align_to_the_right_at_both_scales() {
+        for scale in [1, 2] {
+            for (width, short, long) in [
+                (46, "9 °C", "100 °C"),
+                (52, "9 °C", "100 °C"),
+                (53, "5 %", "100 %"),
+                (53, "5 MB", "4000 MB"),
+                (152, "1 / 9 MB", "512 / 12000 MB"),
+            ] {
+                let render = |text| {
+                    let mut dashboard = Dashboard {
+                        width: WIDTH,
+                        height: HEIGHT,
+                        scale,
+                        groups: std::array::from_fn(|_| Vec::new()),
+                        edges: std::array::from_fn(|_| std::array::from_fn(|_| Vec::new())),
+                        boxes: Vec::new(),
+                    };
+                    dashboard.hardware_text(text, 70, 111, width, VALUE);
+                    dashboard
+                };
+                let short = render(short);
+                let long = render(long);
+                let right_edge = |dashboard: &Dashboard| {
+                    dashboard.groups[VALUE]
+                        .iter()
+                        .chain(dashboard.edges[VALUE].iter().flatten())
+                        .map(|rect| rect.x + rect.width)
+                        .max()
+                        .unwrap()
+                };
+                assert_eq!(
+                    right_edge(&short),
+                    right_edge(&long),
+                    "unit alignment at {scale}×, width {width}"
+                );
+                for dashboard in [&short, &long] {
+                    assert!(dashboard.groups[VALUE]
+                        .iter()
+                        .chain(dashboard.edges[VALUE].iter().flatten())
+                        .all(|rect| rect.x >= 70 * scale
+                            && rect.x + rect.width <= (70 + width) * scale));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn hardware_values_are_closer_to_their_labels() {
+        for scale in [1, 2] {
+            for (text, old_x, old_width, new_x, new_width, shift) in [
+                ("43 °C", 66, 60, 66, 46, 14),
+                ("57 °C", 180, 52, 166, 52, 14),
+                ("55 %", 275, 67, 275, 53, 14),
+                ("512 / 12000 MB", 66, 166, 66, 152, 14),
+                ("4000 MB", 275, 67, 275, 53, 14),
+            ] {
+                let right_edge = |x, width| {
+                    let mut dashboard = Dashboard {
+                        width: WIDTH,
+                        height: HEIGHT,
+                        scale,
+                        groups: std::array::from_fn(|_| Vec::new()),
+                        edges: std::array::from_fn(|_| std::array::from_fn(|_| Vec::new())),
+                        boxes: Vec::new(),
+                    };
+                    dashboard.hardware_text(text, x, 111, width, VALUE);
+                    dashboard.groups[VALUE]
+                        .iter()
+                        .chain(dashboard.edges[VALUE].iter().flatten())
+                        .map(|rect| rect.x + rect.width)
+                        .max()
+                        .unwrap()
+                };
+                assert_eq!(
+                    right_edge(new_x, new_width) + shift * scale,
+                    right_edge(old_x, old_width),
+                    "{text} at {scale}×"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn compact_rows_and_key_hints_do_not_overlap() {
         let hardware = HardwareMetrics {
             gpu_edge_temp_c: Some(100.0),
@@ -1085,6 +1412,13 @@ mod tests {
             cpu_load_percent: Some(100.0),
             ppt_w: Some(100.0),
             fan_rpm: Some(9999.0),
+            memory_temp: Some(MemoryTemperature {
+                celsius: 120.0,
+                lower_bound: true,
+            }),
+            gtt_used_mb: Some(512.0),
+            gtt_total_mb: Some(12000.0),
+            ram_used_mb: Some(4000.0),
             ..HardwareMetrics::default()
         };
         let intersects = |a: &OverlayRect, b: &OverlayRect| {
@@ -1143,7 +1477,7 @@ mod tests {
                     edges: std::array::from_fn(|_| std::array::from_fn(|_| Vec::new())),
                     boxes: Vec::new(),
                 };
-                reference.text(action, x + 36, 188, 11, 50, true, LABEL);
+                reference.text(action, x + 36, 203, 11, 50, true, LABEL);
                 assert!(reference.groups[LABEL]
                     .iter()
                     .chain(reference.edges[LABEL].iter().flatten())
@@ -1192,6 +1526,14 @@ mod tests {
                 vk::Extent2D {
                     width: WIDTH * 2 - 1,
                     height: HEIGHT * 2,
+                },
+                100,
+                1,
+            ),
+            (
+                vk::Extent2D {
+                    width: WIDTH * 2,
+                    height: HEIGHT * 2 - 1,
                 },
                 100,
                 1,

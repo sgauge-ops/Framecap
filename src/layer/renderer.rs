@@ -1,5 +1,7 @@
 use crate::layer::config::{AutoMetric, AutoTarget, Hotkey};
-use crate::layer::lib::{GpuMeasurement, HardwareMetrics, MetricsSnapshot, TelemetryStatus};
+use crate::layer::lib::{
+    GpuMeasurement, HardwareMetrics, MemoryTemperature, MetricsSnapshot, TelemetryStatus,
+};
 use crate::layer::settings::OverlayRenderer;
 use ash::vk;
 use std::collections::VecDeque;
@@ -252,14 +254,7 @@ impl Renderer {
 
     pub fn memory_sensor_text(metrics: &MetricsSnapshot) -> String {
         let hardware = metrics.hardware_metrics();
-        let temperature = hardware
-            .memory_temp
-            .filter(|value| value.celsius.is_finite())
-            .map(|value| {
-                let prefix = if value.lower_bound { ">=" } else { "" };
-                format!("{prefix}{:.0}", value.celsius)
-            })
-            .unwrap_or_else(|| "--".to_owned());
+        let temperature = format_memory_temperature(hardware.memory_temp);
         let mut text = if temperature.len() > 3 {
             format!("GDDR6: {temperature} °C")
         } else {
@@ -483,6 +478,16 @@ fn format_optional(value: Option<f32>, precision: usize) -> String {
     value
         .filter(|value| value.is_finite())
         .map(|value| format!("{value:.precision$}"))
+        .unwrap_or_else(|| "--".to_owned())
+}
+
+fn format_memory_temperature(value: Option<MemoryTemperature>) -> String {
+    value
+        .filter(|value| value.celsius.is_finite())
+        .map(|value| {
+            let prefix = if value.lower_bound { ">=" } else { "" };
+            format!("{prefix}{:.0}", value.celsius)
+        })
         .unwrap_or_else(|| "--".to_owned())
 }
 

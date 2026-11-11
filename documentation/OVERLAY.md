@@ -11,7 +11,7 @@ rounded, shaded panels, keycaps and mode badge. The dashboard has a gray
 outline; its background opacity is configurable independently of the outline
 and text. Very long values are reduced in size or ellipsized within their
 cells. At small swapchain sizes, the dashboard is clipped to the available
-area. The full dashboard measures 370 × 215 pixels at 1×. It is rendered at
+area. The full dashboard measures 370 × 230 pixels at 1×. It is rendered at
 2× when the swapchain width reaches
 `[overlay].scale_2x_min_width_px` (default: 3840 px) and the whole dashboard
 fits at that scale.
@@ -28,13 +28,19 @@ The ascii overlay presents:
          MODE: AUTO (JIT) | CAP:     60 FPS  | HYS:   5.0 FPS   | TARGET: 55 FPS
 -----------------------------------------------------------------
          GPU:    43 °C    | VRM:   57 °C     | Load:   55 %     | PPT:  32.6 W
-         CPU:    70 °C    | VRM:   61 °C     | Load:   35 %     | RPM:  1240 RPM
+         CPU:    70 °C    | VRM:   61 °C     | Load:   35 %     | FAN:  1240 RPM
          GDDR6:  56 °C    | GTT:    512 / 12000 MB              | RAM:  4000 MB
 -----------------------------------------------------------------
          [F5] CYCLE MODE  | [F6]  -1 FPS     | [F7]  +1 FPS     | [F8] CYCLE OSD
 ```
 
-The third hardware row is shown only in the full ASCII overlay. GTT used and
+The full modern dashboard groups GDDR6, PPT and FAN on one hardware row,
+followed by GTT and RAM, with RAM aligned under FAN. Hardware labels use the
+same font size as the main metric labels and share a baseline with their
+values; text that must be reduced to fit remains baseline-aligned. Hardware
+values are right-aligned in their cells so their units line up vertically.
+Both full overlays show
+the memory readings; FPS-only mode does not. GTT used and
 total come from the selected AMD GPU's `mem_info_gtt_used` and
 `mem_info_gtt_total` sysfs attributes. RAM used is `MemTotal - MemAvailable`
 from `/proc/meminfo`, excluding swap and accounting for reclaimable memory.

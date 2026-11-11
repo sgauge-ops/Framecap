@@ -32,20 +32,20 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ## Download and build Framecap
 
 ```sh
-git clone https://github.com/sgauge-ops/bc250-framecap.git "$HOME/FrameCap" ;
-cd "$HOME/FrameCap" ;
+git clone https://github.com/sgauge-ops/bc250-framecap.git "$HOME/bc250-framecap ;
+cd "$HOME/bc250-framecap ;
 cargo build --locked
 ```
 
 ## Configure
 
-Edit `$HOME/FrameCap/framecap.toml` for your machine. To make this
+Edit `$HOME/bc250-framecap/framecap.toml` for your machine. To make this
 configuration available to games launched from other directories, create a
 symbolic link in the configuration directory searched by Framecap:
 
 ```sh
 mkdir -p "$HOME/.config" ;
-ln -sT "$HOME/FrameCap/framecap.toml" "$HOME/.config/framecap.toml"
+ln -sT "$HOME/bc250-framecap/framecap.toml" "$HOME/.config/framecap.toml"
 ```
 
 ## Test with vkcube
@@ -54,7 +54,7 @@ From your home directory, with a graphical session and `vkcube` available:
 
 ```sh
 cd ~/ ;
-VK_LAYER_PATH="$HOME/FrameCap/layer" VK_INSTANCE_LAYERS=VK_LAYER_FRAMECAP_observability vkcube --c 300
+VK_LAYER_PATH="$HOME/bc250-framecap/layer" VK_INSTANCE_LAYERS=VK_LAYER_FRAMECAP_observability vkcube --c 300
 ```
 
 Framecap should show-up :
@@ -66,7 +66,7 @@ Framecap should show-up :
 Under **Properties > General > Launch Options**, add:
 
 ```sh
-VK_LAYER_PATH="$HOME/FrameCap/layer" VK_INSTANCE_LAYERS=VK_LAYER_FRAMECAP_observability %command%
+VK_LAYER_PATH="$HOME/bc250-framecap/layer" VK_INSTANCE_LAYERS=VK_LAYER_FRAMECAP_observability %command%
 ```
 
 Steam replaces `%command%` with the game command. This activates the layer for
@@ -75,7 +75,7 @@ that game, not globally. Remove the launch options to disable it.
 ## Update and rebuild
 
 ```sh
-cd "$HOME/FrameCap" ;
+cd "$HOME/bc250-framecap ;
 cp framecap.toml framecap.bak.toml ;
 git reset --hard HEAD ;
 git pull ;

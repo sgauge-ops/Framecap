@@ -8,6 +8,7 @@ changes, not necessarily when development originally took place.
 
 | Date | Changes |
 | --- | --- |
+| 2026-11-11 | Added GDDR6 hotspot, GTT used/total and system RAM used to the full modern overlay. Grouped GDDR6 with PPT and FAN, placed RAM under FAN, and increased the dashboard height to 230 px at 1×. Harmonized hardware label sizes, aligned labels and values on a common baseline, right-aligned values by unit and reduced spacing between labels and values. |
 | 2026-11-11 | Added GTT used/total, system RAM used and BC-250 GDDR6 hotspot to the ASCII overlay. `[framecap].memory_poll_rate_ms` defaults to 5000 ms; values below 2000 ms disable the `bc250_memory` hwmon reader. |
 | 2026-11-09 | Shifted the HYS label and value one character left in the modern overlay. |
 | 2026-11-09 | Changed VRM and FAN F6/F7 controls to adjust the active target by the configured hysteresis, leaving hysteresis unchanged; changes are temporary. JIT continues to adjust hysteresis. |
