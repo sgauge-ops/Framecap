@@ -27,7 +27,7 @@ Holding [F8] for one second switches between the `modern` and `ascii` renderers.
 ## Install the Linux x86_64 binary
 
 Download and extract the archive attached to the
-[latest release](https://github.com/sgauge-ops/bc250-bc250-framecap/releases/latest):
+[latest release](https://github.com/sgauge-ops/bc250-framecap/releases/latest):
 
 ```sh
 mkdir -p "$HOME/bc250-framecap" ;
@@ -96,7 +96,7 @@ that game, not globally. Remove the launch options to disable it.
 ## Update
 
 ```sh
-curl -fL https://github.com/sgauge-ops/bc250-bc250-framecap/releases/latest/download/framecap-linux-x86_64.tar.gz \
+curl -fL https://github.com/sgauge-ops/bc250-framecap/releases/latest/download/framecap-linux-x86_64.tar.gz \
   | tar -xz -C "$HOME/bc250-framecap"
 ```
 
